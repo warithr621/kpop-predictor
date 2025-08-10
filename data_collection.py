@@ -52,9 +52,10 @@ def artist_album_fetch(id: str, pause: float=1.0, limit: int=100) -> List[Dict]:
 			r_type = (release.get('type') or '').lower()
 			if r_type not in ('album', 'ep', 'single'): continue
 			r_type = r_type.upper() if r_type == 'ep' else r_type.capitalize()
-			release_id, title, date = release.get('id'), release.get('title'), release.get('first-release-date')
+			title, date = release.get('title'), release.get('first-release-date')
+			if 'remix' in title.lower() or 'ver.' in title.lower() or 'version' in title.lower() or 'edit' in title.lower():
+				continue # many remixes tend to be released on the same day or very close to the original, so this could be an easy skew
 			rows.append({
-				'release_group_id': release_id,
 				'title': title,
 				'type': r_type,
 				'release_date': date
