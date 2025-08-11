@@ -54,97 +54,6 @@ KPOP_GROUPS = {
 	]
 }
 
-# Company name mappings (MusicBrainz label names -> standardized names)
-COMPANY_MAPPINGS = {
-	# Major companies
-	'JYP': 'JYPE',
-	'JYP Entertainment': 'JYPE',
-	'JYP Entertainment Co., Ltd.': 'JYPE',
-	
-	'SM': 'SM Entertainment',
-	'SM Entertainment': 'SM Entertainment',
-	'SM Entertainment Co., Ltd.': 'SM Entertainment',
-	
-	'HYBE': 'HYBE',
-	'Big Hit': 'HYBE',
-	'BigHit': 'HYBE',
-	'Big Hit Entertainment': 'HYBE',
-	'BigHit Entertainment': 'HYBE',
-	'HYBE Labels': 'HYBE',
-	
-	'YG': 'YG Entertainment',
-	'YG Entertainment': 'YG Entertainment',
-	'YG Entertainment Inc.': 'YG Entertainment',
-	
-	# Other companies
-	'Cube': 'Cube Entertainment',
-	'Cube Entertainment': 'Cube Entertainment',
-	'Cube Entertainment Inc.': 'Cube Entertainment',
-	
-	'Starship': 'Starship Entertainment',
-	'Starship Entertainment': 'Starship Entertainment',
-	
-	'FNC': 'FNC Entertainment',
-	'FNC Entertainment': 'FNC Entertainment',
-	
-	'Pledis': 'Pledis Entertainment',
-	'Pledis Entertainment': 'Pledis Entertainment',
-	
-	'Source': 'Source Music',
-	'Source Music': 'Source Music',
-	
-	'ADOR': 'ADOR',
-	'ADOR Entertainment': 'ADOR',
-	
-	'Kakao': 'Kakao Entertainment',
-	'Kakao Entertainment': 'Kakao Entertainment',
-	
-	'RBW': 'RBW',
-	'RBW Entertainment': 'RBW',
-	
-	'WM': 'WM Entertainment',
-	'WM Entertainment': 'WM Entertainment',
-	
-	'Plan A': 'Plan A Entertainment',
-	'Plan A Entertainment': 'Plan A Entertainment',
-	
-	'MBK': 'MBK Entertainment',
-	'MBK Entertainment': 'MBK Entertainment',
-	
-	'TS': 'TS Entertainment',
-	'TS Entertainment': 'TS Entertainment',
-	
-	'DSP': 'DSP Media',
-	'DSP Media': 'DSP Media',
-	
-	'Jellyfish': 'Jellyfish Entertainment',
-	'Jellyfish Entertainment': 'Jellyfish Entertainment',
-	
-	'Fantagio': 'Fantagio',
-	'Fantagio Entertainment': 'Fantagio',
-	
-	'Happy Face': 'Happy Face Entertainment',
-	'Happy Face Entertainment': 'Happy Face Entertainment',
-	
-	'Maroo': 'Maroo Entertainment',
-	'Maroo Entertainment': 'Maroo Entertainment',
-	
-	'Chrome': 'Chrome Entertainment',
-	'Chrome Entertainment': 'Chrome Entertainment',
-	
-	'B2M': 'B2M Entertainment',
-	'B2M Entertainment': 'B2M Entertainment',
-	
-	'LOEN': 'LOEN Entertainment',
-	'LOEN Entertainment': 'LOEN Entertainment',
-	
-	'CJ E&M': 'CJ E&M',
-	'CJ Entertainment': 'CJ E&M',
-	
-	'Kakao M': 'Kakao Entertainment',
-	'Kakao Music': 'Kakao Entertainment'
-}
-
 # Generation mappings for specific groups (can override automatic detection)
 GENERATION_MAPPINGS = {
 	# 3rd Generation
@@ -197,3 +106,63 @@ GENERATION_MAPPINGS = {
 	'IFEYE': '5th Gen',
 	'ILLIT': '5th Gen'
 }
+
+# group -> parent company 
+GROUP_COMPANIES = {
+	# 3rd Gen
+	'EXO': 'SM Entertainment',
+	'BTS': 'HYBE',
+	'GOT7': 'JYPE',
+	'MAMAMOO': 'RBW',
+	'Red Velvet': 'SM Entertainment',
+	'GFRIEND': 'HYBE',
+	'Monsta X': 'Starship Entertainment',
+	'TWICE': 'JYPE',
+	'BLACKPINK': 'YG Entertainment',
+	'MOMOLAND': 'MLD Entertainment',
+
+	# 4th Gen
+	'fromis_9': 'HYBE',
+	'Stray Kids': 'JYPE',
+	'i-dle': 'Cube Entertainment',
+	'LOONA': 'BlockBerry Creative',
+	'ATEEZ': 'KQ Entertainment',
+	'IZ*ONE': 'CJ E&M',
+	'ITZY': 'JYPE',
+	'TXT': 'HYBE',
+	'EVERGLOW': 'Yuehua Entertainment',
+	'TREASURE': 'YG Entertainment',
+	'P1Harmony': 'FNC Entertainment',
+	'STAYC': 'High Up Entertainment',
+	'aespa': 'SM Entertainment',
+	'ENHYPEN': 'HYBE',
+	'NiziU': 'JYPE',
+	'IVE': 'Starship Entertainment',
+	'Kep1er': 'CJ E&M',
+	'NMIXX': 'JYPE',
+	'LE SSERAFIM': 'HYBE',
+	'NewJeans': 'HYBE',
+
+	# 5th Gen
+	'tripleS': 'MODHAUS',
+	'BOYNEXTDOOR': 'HYBE',
+	'KISS OF LIFE': 'S2 Entertainment',
+	'ZEROBASEONE': 'CJ E&M',
+	'RIIZE': 'SM Entertainment',
+	'BABYMONSTER': 'YG Entertainment',
+	'TWS': 'HYBE',
+	'ARTMS': 'MODHAUS',
+	'BADVILLAIN': 'One Hundred',
+	'MEOVV': 'THE BLACK LABEL',
+	'IZNA': 'CJ E&M',
+	'Hearts2Hearts': 'SM Entertainment',
+	'IFEYE': 'Hi-Hat Entertainment',
+	'ILLIT': 'HYBE'
+}
+
+# keep special note of all retired groups
+RETIRED_GROUPS = [
+	'GFRIEND',  # disbanded officially in 2021, although they did perform a 10th anniversary project in 2025
+	'MOMOLAND', # disbanded officially in 2023, although reuniting in 2025 via exclusive contracts
+	'IZ*ONE'    # disbanded in 2021
+]
