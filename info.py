@@ -32,8 +32,7 @@ KPOP_GROUPS = {
 		'IVE',
 		'Kep1er',
 		'NMIXX',
-		'LE SSERAFIM',
-		'NewJeans'
+		'LE SSERAFIM'
 	],
 	
 	'5th Gen': [
@@ -47,7 +46,7 @@ KPOP_GROUPS = {
 		'ARTMS',
 		'BADVILLAIN',
 		'MEOVV',
-		'IZNA',
+		'izna',
 		'Hearts2Hearts',
 		'IFEYE',
 		'ILLIT'
@@ -88,7 +87,6 @@ GENERATION_MAPPINGS = {
 	'Kep1er': '4th Gen',
 	'NMIXX': '4th Gen',
 	'LE SSERAFIM': '4th Gen',
-	'NewJeans': '4th Gen',
 	
 	# 5th Generation
 	'tripleS': '5th Gen',
@@ -101,7 +99,7 @@ GENERATION_MAPPINGS = {
 	'ARTMS': '5th Gen',
 	'BADVILLAIN': '5th Gen',
 	'MEOVV': '5th Gen',
-	'IZNA': '5th Gen',
+	'izna': '5th Gen',
 	'Hearts2Hearts': '5th Gen',
 	'IFEYE': '5th Gen',
 	'ILLIT': '5th Gen'
@@ -141,7 +139,6 @@ GROUP_COMPANIES = {
 	'Kep1er': 'CJ E&M',
 	'NMIXX': 'JYPE',
 	'LE SSERAFIM': 'HYBE',
-	'NewJeans': 'HYBE',
 
 	# 5th Gen
 	'tripleS': 'MODHAUS',
@@ -154,7 +151,7 @@ GROUP_COMPANIES = {
 	'ARTMS': 'MODHAUS',
 	'BADVILLAIN': 'One Hundred',
 	'MEOVV': 'THE BLACK LABEL',
-	'IZNA': 'CJ E&M',
+	'izna': 'CJ E&M',
 	'Hearts2Hearts': 'SM Entertainment',
 	'IFEYE': 'Hi-Hat Entertainment',
 	'ILLIT': 'HYBE'
