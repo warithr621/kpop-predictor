@@ -73,6 +73,26 @@ def artist_album_fetch(id: str, pause: float=1.0, limit: int=100) -> List[Dict]:
 		if offset >= total:
 			break
 		sleep(pause)
+
+	if rows:
+		kept = {}
+		for r in rows:
+			title_norm = (r.get('title') or '').strip().lower()
+			type_val = r.get('type')
+			key = (title_norm, type_val)
+
+			dt = pd.to_datetime(r.get('release_date'), errors='coerce')
+			cmp_dt = dt if not pd.isna(dt) else pd.Timestamp.max
+			if key not in kept or cmp_dt < kept[key][0]:
+				kept[key] = (cmp_dt, r)
+
+		# remove all duplicates (e.g. an artist releasing a song and then not too long later releases a jpn ver of same song/album)
+		def _sort_key(item):
+			d = pd.to_datetime(item.get('release_date'), errors='coerce')
+			return d if not pd.isna(d) else pd.Timestamp.max
+
+		rows = [v[1] for v in kept.values()]
+		rows.sort(key=_sort_key)
 	return rows
 
 

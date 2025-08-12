@@ -1,3 +1,7 @@
+# stuff
 __pycache__/
 .DS_Store
 .env
+
+# current working model
+working.py
