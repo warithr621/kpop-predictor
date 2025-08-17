@@ -11,7 +11,7 @@ import lightgbm as lgb
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
-from info import GENERATION_MAPPINGS, KPOP_GROUPS
+from info import GENERATION_MAPPINGS, KPOP_GROUPS, SOLOISTS
 
 DEFAULT_CUTOFF = date(2024, 12, 31)
 DEFAULT_MIN_PREDICTION_DATE = date(2025, 1, 1)
@@ -48,6 +48,26 @@ def load_group_releases(csv_path: str) -> pd.DataFrame:
 	return df
 
 
+def get_solo_releases_for_group(group: str, all_releases: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+	solo_releases = []
+	
+	# Find all soloists that belong to this group
+	for soloist, soloist_group in SOLOISTS.items():
+		if soloist_group == group:
+			soloist_sanitized = sanitize(soloist)
+			if soloist_sanitized in all_releases:
+				solo_df = all_releases[soloist_sanitized].copy()
+				solo_df['soloist'] = soloist
+				solo_releases.append(solo_df)
+	
+	if solo_releases:
+		combined_solos = pd.concat(solo_releases, ignore_index=True)
+		combined_solos = combined_solos.sort_values('release_date').reset_index(drop=True)
+		return combined_solos
+	else:
+		return pd.DataFrame()
+
+
 def load_all_releases(albums_dir: str) -> Dict[str, pd.DataFrame]:
 	group_to_df: Dict[str, pd.DataFrame] = {}
 	for csv_path in sorted(glob.glob(os.path.join(albums_dir, "*.csv"))):
@@ -61,24 +81,62 @@ def load_all_releases(albums_dir: str) -> Dict[str, pd.DataFrame]:
 	return group_to_df
 
 
-def extract_features_from_group(df: pd.DataFrame, group: str, cutoff: date) -> List[Dict]:
+def extract_features_from_group(df: pd.DataFrame, group: str, cutoff: date, all_releases: Dict[str, pd.DataFrame]) -> List[Dict]:
 	features = []
 	generation = GENERATION_MAPPINGS.get(group, 0)
 	cutoff_dt = pd.Timestamp(cutoff)
 	df_sorted = df[df["release_date"] <= cutoff_dt].sort_values("release_date")
 	if len(df_sorted) < 2:
 		return features
+	
+	# Get solo releases for this group
+	solo_releases = get_solo_releases_for_group(group, all_releases)
 	for i in range(1, len(df_sorted)):
 		current_release = df_sorted.iloc[i]
 		previous_releases = df_sorted.iloc[:i]
-		
 		if i < len(df_sorted) - 1:
 			next_release = df_sorted.iloc[i + 1]
 			target_days = (next_release["release_date"] - current_release["release_date"]).days
 		else:
 			continue
 		
-		feature_dict = { # pain
+		current_date = current_release["release_date"]
+		recent_solos_6m = 0
+		recent_solos_1y = 0
+		recent_solos_2y = 0
+		recent_solo_30d = 0
+		days_since_last_solo = 9999
+		solo_frequency = 0
+		if not solo_releases.empty and 'release_date' in solo_releases.columns:
+			# do a bunch of annoying math (thanks pandas)
+			six_months_ago = current_date - pd.DateOffset(months=6)
+			one_year_ago = current_date - pd.DateOffset(months=12)
+			two_years_ago = current_date - pd.DateOffset(months=24)
+			thirty_days_ago = current_date - pd.DateOffset(days=30)
+			recent_solos_6m = len(solo_releases[
+				(solo_releases["release_date"] >= six_months_ago) & 
+				(solo_releases["release_date"] < current_date)
+			])
+			recent_solos_1y = len(solo_releases[
+				(solo_releases["release_date"] >= one_year_ago) & 
+				(solo_releases["release_date"] < current_date)
+			])
+			recent_solos_2y = len(solo_releases[
+				(solo_releases["release_date"] >= two_years_ago) & 
+				(solo_releases["release_date"] < current_date)
+			])
+			
+			previous_solos = solo_releases[solo_releases["release_date"] < current_date]
+			days_since_last_solo = (current_date - previous_solos.iloc[-1]["release_date"]).days if not previous_solos.empty else 9999
+			total_solos_before = len(previous_solos)
+			years_since_debut = (current_date - df_sorted.iloc[0]["release_date"]).days / 365.25
+			solo_frequency = total_solos_before / max(years_since_debut, 0.1)
+			recent_solo_30d = len(solo_releases[
+				(solo_releases["release_date"] >= thirty_days_ago) & 
+				(solo_releases["release_date"] < current_date)
+			])
+		
+		feature_dict = {
 			"group": group,
 			"generation": generation,
 			"release_date": current_release["release_date"],
@@ -95,6 +153,13 @@ def extract_features_from_group(df: pd.DataFrame, group: str, cutoff: date) -> L
 			"releases_last_year": len(previous_releases[previous_releases["release_date"].dt.year == current_release["release_date"].year - 1]),
 			"month": current_release["release_date"].month,
 			"quarter": (current_release["release_date"].month - 1) // 3 + 1,
+			# solo / subunit releases
+			"recent_solos_6m": recent_solos_6m,
+			"recent_solos_1y": recent_solos_1y,
+			"recent_solos_2y": recent_solos_2y,
+			"recent_solo_30d": recent_solo_30d,
+			"days_since_last_solo": days_since_last_solo,
+			"solo_frequency": solo_frequency,
 			"target_days": target_days
 		}
 		features.append(feature_dict)
@@ -105,7 +170,7 @@ def extract_features_from_group(df: pd.DataFrame, group: str, cutoff: date) -> L
 def prepare_training_data(data_by_group: Dict[str, pd.DataFrame], cutoff: date) -> pd.DataFrame:
 	all_features = []
 	for group, df in data_by_group.items():
-		features = extract_features_from_group(df, group, cutoff)
+		features = extract_features_from_group(df, group, cutoff, data_by_group)
 		all_features.extend(features)
 	if not all_features:
 		return pd.DataFrame()
@@ -121,15 +186,15 @@ def prepare_training_data(data_by_group: Dict[str, pd.DataFrame], cutoff: date) 
 
 
 def train_lightgbm_model(df_train: pd.DataFrame) -> lgb.LGBMRegressor:
-	
-	# fts for training
 	feature_cols = [
 		"group_encoded", "generation", "type_encoded",
 		"release_number", "days_since_debut", "days_since_previous",
 		"avg_interval_so_far", "median_interval_so_far", "std_interval_so_far",
 		"min_interval_so_far", "max_interval_so_far",
 		"releases_this_year", "releases_last_year",
-		"month", "quarter"
+		"month", "quarter",
+		"recent_solos_6m", "recent_solos_1y", "recent_solos_2y",
+		"recent_solo_30d", "days_since_last_solo", "solo_frequency"
 	]
 	
 	X = df_train[feature_cols]
@@ -156,7 +221,8 @@ def predict_next_release_lightgbm(
 	model: lgb.LGBMRegressor,
 	group: str,
 	cutoff: date,
-	min_prediction_date: date
+	min_prediction_date: date,
+	all_releases: Dict[str, pd.DataFrame]
 ) -> Optional[date]:
 	
 	cutoff_dt = pd.Timestamp(cutoff)
@@ -169,6 +235,41 @@ def predict_next_release_lightgbm(
 	last_date = last_release["release_date"]
 	previous_releases = df_cut.iloc[:-1] if len(df_cut) > 1 else pd.DataFrame()
 	generation = GENERATION_MAPPINGS.get(group, 0)
+	
+	solo_releases = get_solo_releases_for_group(group, all_releases)
+	recent_solos_6m = 0
+	recent_solos_1y = 0
+	recent_solos_2y = 0
+	recent_solo_30d = 0
+	days_since_last_solo = 9999
+	solo_frequency = 0
+	if not solo_releases.empty and 'release_date' in solo_releases.columns:
+		six_months_ago = last_date - pd.DateOffset(months=6)
+		one_year_ago = last_date - pd.DateOffset(months=12)
+		two_years_ago = last_date - pd.DateOffset(months=24)
+		thirty_days_ago = last_date - pd.DateOffset(days=30)
+		recent_solos_6m = len(solo_releases[
+			(solo_releases["release_date"] >= six_months_ago) & 
+			(solo_releases["release_date"] <= last_date)
+		])
+		recent_solos_1y = len(solo_releases[
+			(solo_releases["release_date"] >= one_year_ago) & 
+			(solo_releases["release_date"] <= last_date)
+		])
+		recent_solos_2y = len(solo_releases[
+			(solo_releases["release_date"] >= two_years_ago) & 
+			(solo_releases["release_date"] <= last_date)
+		])
+		recent_solo_30d = len(solo_releases[
+			(solo_releases["release_date"] >= thirty_days_ago) & 
+			(solo_releases["release_date"] <= last_date)
+		])
+		
+		previous_solos = solo_releases[solo_releases["release_date"] <= last_date]
+		days_since_last_solo = (last_date - previous_solos.iloc[-1]["release_date"]).days if not previous_solos.empty else 9999
+		total_solos_before = len(previous_solos)
+		years_since_debut = (last_date - df_cut.iloc[0]["release_date"]).days / 365.25
+		solo_frequency = total_solos_before / max(years_since_debut, 0.1)
 	
 	feature_dict = {
 		"group_encoded": hash(group) % 1000,
@@ -185,22 +286,28 @@ def predict_next_release_lightgbm(
 		"releases_this_year": len(previous_releases[previous_releases["release_date"].dt.year == last_date.year]) if len(previous_releases) > 0 else 0,
 		"releases_last_year": len(previous_releases[previous_releases["release_date"].dt.year == last_date.year - 1]) if len(previous_releases) > 0 else 0,
 		"month": last_date.month,
-		"quarter": (last_date.month - 1) // 3 + 1
+		"quarter": (last_date.month - 1) // 3 + 1,
+		# solo / subunit stuff
+		"recent_solos_6m": recent_solos_6m,
+		"recent_solos_1y": recent_solos_1y,
+		"recent_solos_2y": recent_solos_2y,
+		"recent_solo_30d": recent_solo_30d,
+		"days_since_last_solo": days_since_last_solo,
+		"solo_frequency": solo_frequency
 	}
 	
-	# ft array
 	feature_cols = [
 		"group_encoded", "generation", "type_encoded",
 		"release_number", "days_since_debut", "days_since_previous",
 		"avg_interval_so_far", "median_interval_so_far", "std_interval_so_far",
 		"min_interval_so_far", "max_interval_so_far",
 		"releases_this_year", "releases_last_year",
-		"month", "quarter"
+		"month", "quarter",
+		"recent_solos_6m", "recent_solos_1y", "recent_solos_2y",
+		"recent_solo_30d", "days_since_last_solo", "solo_frequency"
 	]
-	
 	X_pred = pd.DataFrame([feature_dict], columns=feature_cols)
 	
-	# Predict days until next release
 	predicted_days = model.predict(X_pred)[0]
 	predicted_days = max(1, int(round(predicted_days)))  # should be pos, but just in case
 	predicted_date = last_date + timedelta(days=predicted_days)
@@ -240,7 +347,8 @@ def predict_all(
 				model=model,
 				group=group,
 				cutoff=cutoff,
-				min_prediction_date=min_prediction_date
+				min_prediction_date=min_prediction_date,
+				all_releases=data_by_group
 			)
 			if predicted_date is None:
 				continue

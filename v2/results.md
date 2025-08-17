@@ -4,10 +4,10 @@
 This uses the same information as `v1` (i.e. only the release dates of albums/EPs/singles), and uses LightGBM's decision tree as a prediction model.
 
 ## MAPE Statistics
-- Overall: 32.86%
-- 3rd Generation: 18.78%
-- 4th Generation: 40.22%
-- 5th Generation: 29.72%
+- Overall: $34.37 \pm 2$%
+- 3rd Generation: $21.41$%
+- 4th Generation: $41.28$%
+- 5th Generation: $31.18$%
 
 ## Insights
 Despite the MAPE going down, there are a *lot* of interesting things to point out. The MAPE for 3rd generation is a lot lower than the other generations, which can likely be explained with two factors:

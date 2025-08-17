@@ -8,10 +8,11 @@ import musicbrainzngs as mb
 import pandas as pd
 from dotenv import load_dotenv
 
-from info import KPOP_GROUPS
+from info import KPOP_GROUPS, SOLOISTS
 
 ARTIST_ID_CACHE = "artist_ids.json"
-groups = [group for gen in KPOP_GROUPS.values() for group in gen]
+groups = [group for gen in KPOP_GROUPS.values() for group in gen] + [solo for solo in SOLOISTS.keys()]
+# hm shady naming but it's fineee
 
 
 
@@ -34,6 +35,7 @@ def scrape_artist_ids():
 			artist_ids[group] = result['artist-list'][0]['id']
 			print(f"Updated {group}")
 			# TODO: there is a slight error with this, as it failed to correctly fetch izna (another artist appeared before it... oops)
+			# the accuracy of this is probably like 90-95% so manual parsing is good enough for fixes
 
 	with open(ARTIST_ID_CACHE, "w") as f:
 		json.dump(artist_ids, f, indent=4)
