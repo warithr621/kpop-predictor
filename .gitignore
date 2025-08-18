@@ -5,3 +5,6 @@ __pycache__/
 
 # current working model
 working.py
+
+# future scraper on ticketmaster (i hope)
+ticketmaster.py
