@@ -52,6 +52,7 @@ KPOP_GROUPS = {
 	],
 }
 
+
 # make note of all soloists + subunits that have released music separately from their groups
 # I could def miss songs from this :sob:
 SOLOISTS = {
@@ -111,6 +112,7 @@ SOLOISTS = {
 	'Sehun': 'EXO'
 }
 
+
 # Generation mappings for specific groups (can override automatic detection)
 GENERATION_MAPPINGS = {
 	# 3rd Generation
@@ -162,6 +164,7 @@ GENERATION_MAPPINGS = {
 	'ILLIT': 5
 }
 
+
 # group -> parent company 
 GROUP_COMPANIES = {
 	# 3rd Gen
@@ -212,3 +215,5 @@ GROUP_COMPANIES = {
 	'IFEYE': 'Hi-Hat Entertainment',
 	'ILLIT': 'HYBE'
 }
+
+
