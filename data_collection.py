@@ -15,7 +15,6 @@ groups = [group for gen in KPOP_GROUPS.values() for group in gen] + [solo for so
 # hm shady naming but it's fineee
 
 
-
 def permissions_setup():
 	load_dotenv()
 	mb.auth(os.getenv("USERNAME"), os.getenv("PASSWORD"))
@@ -34,8 +33,6 @@ def scrape_artist_ids():
 			result = mb.search_artists(artist=group, limit=5)
 			artist_ids[group] = result['artist-list'][0]['id']
 			print(f"Updated {group}")
-			# TODO: there is a slight error with this, as it failed to correctly fetch izna (another artist appeared before it... oops)
-			# the accuracy of this is probably like 90-95% so manual parsing is good enough for fixes
 
 	with open(ARTIST_ID_CACHE, "w") as f:
 		json.dump(artist_ids, f, indent=4)

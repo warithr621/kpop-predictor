@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Typing animation */
+.typing-container {
+  display: inline-block;
+  border-right: 2px solid #e5e7eb;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.fade-caret {
+  animation: caret 1s steps(1) infinite;
+}
+
+@keyframes caret {
+  50% { border-color: transparent; }
+}
+
