@@ -76,24 +76,6 @@ export default function GroupPage() {
         {result && (
           <div className="mt-6 bg-white rounded-lg p-6 shadow-lg">
             <div className="text-lg text-gray-800">{pretty}</div>
-            {result.metrics && (
-              <div className="text-sm text-gray-600 mt-2">
-                Past MAE: {result.metrics.mae_days ? `${Math.round(result.metrics.mae_days)} days` : 'n/a'}
-                {result.metrics.mape_pct ? ` • MAPE: ${result.metrics.mape_pct.toFixed(1)}%` : ''}
-              </div>
-            )}
-            <div className="mt-4 flex gap-3">
-              <a
-                href={`data:text/json,${encodeURIComponent(JSON.stringify(result, null, 2))}`}
-                download={`${meta?.name || 'prediction'}.json`}
-                className="text-sm text-purple-600 hover:text-purple-800 underline"
-              >Download JSON</a>
-              <a
-                href={`data:text/csv,${encodeURIComponent(`group,pred_date,uncertainty_days\n${meta?.name},${result.pred_date},${result.uncertainty_days || ''}`)}`}
-                download={`${meta?.name || 'prediction'}.csv`}
-                className="text-sm text-purple-600 hover:text-purple-800 underline"
-              >Download CSV</a>
-            </div>
           </div>
         )}
       </div>

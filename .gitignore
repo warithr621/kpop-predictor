@@ -1,3 +1,5 @@
+# this is basically a default starter pack gitignore LOL the supermajority of this is not even in the directory..
+
 # Python
 __pycache__/
 *.py[cod]
