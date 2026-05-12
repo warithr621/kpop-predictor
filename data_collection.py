@@ -1,18 +1,17 @@
 import json
 import os
-import re
 from time import sleep
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import musicbrainzngs as mb
 import pandas as pd
 from dotenv import load_dotenv
 
 from info import KPOP_GROUPS, SOLOISTS
+from backend.model import sanitize
 
 ARTIST_ID_CACHE = "artist_ids.json"
-groups = [group for gen in KPOP_GROUPS.values() for group in gen] + [solo for solo in SOLOISTS.keys()]
-# hm shady naming but it's fineee
+groups = [group for gen in KPOP_GROUPS.values() for group in gen] + list(SOLOISTS.keys())
 
 
 def permissions_setup():
@@ -39,13 +38,6 @@ def scrape_artist_ids():
 	print("All artist IDs have been retrieved")
 
 
-def sanitize(name: str) -> str:
-	name = name.strip()
-	name = re.sub(r"[\/\\\:\*\?\"<>\|]+", "_", name)
-	name = re.sub(r"\s+", "_", name)
-	return name
-
-
 def artist_album_fetch(id: str, pause: float=1.0, limit: int=100) -> List[Dict]:
 	rows = []
 	offset = 0
@@ -61,8 +53,7 @@ def artist_album_fetch(id: str, pause: float=1.0, limit: int=100) -> List[Dict]:
 			r_type = r_type.upper() if r_type == 'ep' else r_type.capitalize()
 			title, date = release.get('title'), release.get('first-release-date')
 			if any(word in title.lower() for word in ('remix', 'ver.', 'version', 'edit')):
-				continue 
-				# many remixes tend to be released on the same day or very close to the original, so this could be an easy skew
+				continue
 			rows.append({
 				'title': title,
 				'type': r_type,
@@ -85,7 +76,6 @@ def artist_album_fetch(id: str, pause: float=1.0, limit: int=100) -> List[Dict]:
 			if key not in kept or cmp_dt < kept[key][0]:
 				kept[key] = (cmp_dt, r)
 
-		# remove all duplicates (e.g. an artist releasing a song and then not too long later releases a jpn ver of same song/album)
 		def _sort_key(item):
 			d = pd.to_datetime(item.get('release_date'), errors='coerce')
 			return d if not pd.isna(d) else pd.Timestamp.max
@@ -112,7 +102,6 @@ def scrape_albums():
 				date = r['release_date']
 				f.write(f'"{title}",{type},{date}\n')
 
-		# make sure to sort the CSV by release date
 		pd.read_csv(path).sort_values(by='release_date').to_csv(path, index=False)
 		print(f"Finished processing {group}")
 	print("All artist albums have been retrieved")

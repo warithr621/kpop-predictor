@@ -195,9 +195,7 @@ def predict(req: PredictRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# Optional root route
+
 @app.get("/")
 def root():
     return {"message": "K-pop Predictor API. See /api/status"}
-
-

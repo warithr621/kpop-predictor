@@ -43,7 +43,7 @@ export default function GroupPage() {
   }, [result]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50 text-gray-800 p-6">
+    <main className="min-h-screen text-gray-800 p-6" style={{ background: 'linear-gradient(135deg, #f5f3ff 0%, #eff6ff 50%, #eef2ff 100%)' }}>
       <div className="max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
@@ -66,7 +66,8 @@ export default function GroupPage() {
           <button
             onClick={onPredict}
             disabled={loading}
-            className="px-6 py-3 rounded-md bg-gradient-to-r from-purple-500 to-blue-500 text-white disabled:opacity-60 shadow-lg hover:shadow-xl transition"
+            className="px-6 py-3 rounded-md text-white disabled:opacity-60 shadow-lg hover:shadow-xl transition font-semibold"
+            style={{ background: 'linear-gradient(to right, #a855f7, #3b82f6)' }}
           >
             {loading ? 'Predicting…' : `Predict ${meta?.name || ''}'s next release`}
           </button>
