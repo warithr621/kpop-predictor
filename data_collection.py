@@ -54,10 +54,32 @@ def artist_album_fetch(id: str, pause: float=1.0, limit: int=100) -> List[Dict]:
 			title, date = release.get('title'), release.get('first-release-date')
 			if any(word in title.lower() for word in ('remix', 'ver.', 'version', 'edit')):
 				continue
+
+			rg_mbid = release["id"]
+			secondary_types = "|".join(release.get("secondary-type-list") or [])
+
+			track_count = 0
+			label = ""
+			try:
+				rg_releases = mb.browse_releases(release_group=rg_mbid, includes=["labels", "media"], limit=5)
+				rg_list = rg_releases.get("release-list", [])
+				if rg_list:
+					r0 = rg_list[0]
+					track_count = sum(int(m.get("track-count", 0)) for m in r0.get("medium-list", []))
+					label_info = r0.get("label-info-list", [])
+					if label_info and label_info[0].get("label"):
+						label = label_info[0]["label"].get("name", "")
+				sleep(pause)
+			except Exception:
+				pass
+
 			rows.append({
 				'title': title,
 				'type': r_type,
-				'release_date': date
+				'release_date': date,
+				'secondary_types': secondary_types,
+				'track_count': track_count,
+				'label': label,
 			})
 		offset += len(release_groups)
 		if offset >= total:
@@ -95,12 +117,12 @@ def scrape_albums():
 		
 		rows = artist_album_fetch(id)
 		with open(path, 'w', encoding='utf-8') as f:
-			f.write('title,type,release_date\n')
+			f.write('title,type,release_date,secondary_types,track_count,label\n')
 			for r in rows:
-				title = r['title'].replace('"', '""')
-				type = r['type']
-				date = r['release_date']
-				f.write(f'"{title}",{type},{date}\n')
+				title  = r['title'].replace('"', '""')
+				s_type = r['secondary_types'].replace('"', '""')
+				lbl    = r['label'].replace('"', '""')
+				f.write(f'"{title}",{r["type"]},{r["release_date"]},"{s_type}",{r["track_count"]},"{lbl}"\n')
 
 		pd.read_csv(path).sort_values(by='release_date').to_csv(path, index=False)
 		print(f"Finished processing {group}")

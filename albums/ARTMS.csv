@@ -1,9 +1,9 @@
-title,type,release_date
-The Carol 3.0,Single,2023-12-01
-<Pre1 : Birth>,Single,2024-03-29
-<Pre2 : Flower Rhythm>,Single,2024-04-11
-<Pre3 : Candy Crush>,Single,2024-04-25
-<Pre4 : Air>,Single,2024-05-10
-<Dall>,Album,2024-05-31
-<BURN>,Single,2025-04-04
-<Club Icarus>,EP,2025-06-13
+title,type,release_date,secondary_types,track_count,label
+The Carol 3.0,Single,2023-12-01,,1,MODHAUS
+<Pre1 : Birth>,Single,2024-03-29,,1,MODHAUS
+<Pre2 : Flower Rhythm>,Single,2024-04-11,,1,MODHAUS
+<Pre3 : Candy Crush>,Single,2024-04-25,,1,MODHAUS
+<Pre4 : Air>,Single,2024-05-10,,1,MODHAUS
+<Dall>,Album,2024-05-31,,11,MODHAUS
+<BURN>,Single,2025-04-04,,2,MODHAUS
+<Club Icarus>,EP,2025-06-13,,6,MODHAUS

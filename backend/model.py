@@ -75,6 +75,19 @@ def load_group_releases(csv_path: str) -> pd.DataFrame:
     df["release_date"] = pd.to_datetime(df["release_date"], errors="coerce")
     df = df.dropna(subset=["release_date"]).copy()
     df = df.sort_values(by="release_date").reset_index(drop=True)
+
+    for col, default in [("secondary_types", ""), ("track_count", 0), ("label", "")]:
+        if col not in df.columns:
+            df[col] = default
+    df["track_count"] = pd.to_numeric(df["track_count"], errors="coerce").fillna(0).astype(int)
+
+    _EXCLUDED_SECONDARY = {"compilation", "live", "remix", "demo"}
+
+    def _has_excluded(val):
+        parts = {p.strip().lower() for p in str(val).split("|") if p.strip()}
+        return bool(parts & _EXCLUDED_SECONDARY)
+
+    df = df[~df["secondary_types"].apply(_has_excluded)].reset_index(drop=True)
     return df
 
 
@@ -242,6 +255,12 @@ def extract_features_from_group(
         last_type_encoded = stable_hash_int(str(prev_release["type"]), 10)
         type_changed = int(str(current_release["type"]) != str(prev_release["type"]))
 
+        track_count_val = int(current_release["track_count"]) if "track_count" in current_release.index else 0
+        track_count_log = float(np.log1p(track_count_val))
+
+        release_label = str(current_release["label"]).strip() if "label" in current_release.index and str(current_release["label"]).strip() not in ("", "nan") else None
+        effective_company = release_label if release_label else (company if company is not None else "Unknown")
+
         day_of_year = int(current_date.dayofyear)
         day_sin = float(np.sin(2 * np.pi * day_of_year / 366.0))
         day_cos = float(np.cos(2 * np.pi * day_of_year / 366.0))
@@ -286,6 +305,8 @@ def extract_features_from_group(
             "interval_trend_5": interval_trend_5,
             "last_type_encoded": last_type_encoded,
             "type_changed": type_changed,
+            "track_count_log": track_count_log,
+            "release_label": effective_company,
             "target_days": float(target_days),
         }
         features.append(feature_dict)
@@ -305,7 +326,7 @@ def prepare_training_data(data_by_group: Dict[str, pd.DataFrame], cutoff: date) 
     df_features["group_encoded"] = df_features["group"].apply(lambda v: stable_hash_int(str(v), 1000))
     df_features["type_encoded"] = df_features["release_type"].apply(lambda v: stable_hash_int(str(v), 10))
     df_features["company_encoded"] = (
-        df_features["company"].fillna("Unknown").apply(lambda v: stable_hash_int(str(v), 100))
+        df_features["release_label"].fillna("Unknown").apply(lambda v: stable_hash_int(str(v), 100))
     )
     # Train on log-scale to reduce skew from very long/short intervals.
     df_features["target_days_log"] = np.log1p(df_features["target_days"])
@@ -328,6 +349,7 @@ def train_lightgbm_quantile_models(
         "recent_solos_6m", "recent_solos_1y", "recent_solos_2y",
         "recent_solo_30d", "days_since_last_solo", "solo_frequency",
         "interval_trend_5", "last_type_encoded", "type_changed",
+        "track_count_log",
     ]
     X = df_train[feature_cols]
     Y = df_train["target_days_log"]
@@ -475,6 +497,12 @@ def predict_next_release_lightgbm_interval(
     last_type_encoded = stable_hash_int(str(second_last_release["type"]), 10)
     type_changed = int(str(last_release["type"]) != str(second_last_release["type"]))
 
+    track_count_val = int(last_release["track_count"]) if "track_count" in last_release.index else 0
+    track_count_log = float(np.log1p(track_count_val))
+
+    release_label = str(last_release["label"]).strip() if "label" in last_release.index and str(last_release["label"]).strip() not in ("", "nan") else None
+    effective_company = release_label if release_label else (company if company is not None else "Unknown")
+
     day_of_year = int(last_date.dayofyear)
     day_sin = float(np.sin(2 * np.pi * day_of_year / 366.0))
     day_cos = float(np.cos(2 * np.pi * day_of_year / 366.0))
@@ -513,13 +541,14 @@ def predict_next_release_lightgbm_interval(
         "interval_trend_5",
         "last_type_encoded",
         "type_changed",
+        "track_count_log",
     ]
 
     feature_dict = {
         "group_encoded": stable_hash_int(str(group_key), 1000),
         "generation": generation,
         "type_encoded": stable_hash_int(str(last_release["type"]), 10),
-        "company_encoded": stable_hash_int(str(company if company is not None else "Unknown"), 100),
+        "company_encoded": stable_hash_int(effective_company, 100),
         "release_number": int(len(df_cut) - 1),
         "days_since_debut": (last_date - df_cut.iloc[0]["release_date"]).days,
         "days_since_previous": float(days_since_previous),
@@ -549,6 +578,7 @@ def predict_next_release_lightgbm_interval(
         "interval_trend_5": interval_trend_5,
         "last_type_encoded": last_type_encoded,
         "type_changed": type_changed,
+        "track_count_log": track_count_log,
     }
 
     X_pred = pd.DataFrame([feature_dict], columns=feature_cols)

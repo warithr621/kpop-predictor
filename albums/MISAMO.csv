@@ -1,11 +1,11 @@
-title,type,release_date
-Bouquet,Single,2023-01-25
-Marshmallow,Single,2023-06-16
-Do not touch,Single,2023-07-14
-Masterpiece,EP,2023-07-25
-NEW LOOK,Single,2024-10-09
-Identity,Single,2024-10-28
-HAUTE COUTURE,EP,2024-11-05
-Message,Single,2025-04-28
-Confetti,Single,2026-01-16
-PLAY,Album,2026-02-04
+title,type,release_date,secondary_types,track_count,label
+Bouquet,Single,2023-01-25,Soundtrack,1,Warner Music Japan
+Marshmallow,Single,2023-06-16,,1,Warner Music Japan
+Do not touch,Single,2023-07-14,,1,Warner Music Japan
+Masterpiece,EP,2023-07-25,,7,Warner Music Japan
+NEW LOOK,Single,2024-10-09,,1,Warner Music Japan
+Identity,Single,2024-10-28,,1,Warner Music Japan
+HAUTE COUTURE,EP,2024-11-05,,10,Warner Music Japan
+Message,Single,2025-04-28,,1,Warner Music Japan
+Confetti,Single,2026-01-16,,1,Warner Music Japan
+PLAY,Album,2026-02-04,,19,Warner Music Japan

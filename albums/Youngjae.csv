@@ -1,6 +1,6 @@
-title,type,release_date
-COLORS from Ars,EP,2021-10-05
-SUGAR,EP,2022-06-21
-Colors,Single,2022-10-11
-Do It,Album,2023-11-06
-Fermata,Single,2025-07-09
+title,type,release_date,secondary_types,track_count,label
+COLORS from Ars,EP,2021-10-05,,7,SUBLIME
+SUGAR,EP,2022-06-21,,5,SUBLIME
+Colors,Single,2022-10-11,,1,
+Do It,Album,2023-11-06,,10,SUBLIME
+Fermata,Single,2025-07-09,,2,
