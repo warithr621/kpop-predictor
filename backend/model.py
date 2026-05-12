@@ -231,6 +231,17 @@ def extract_features_from_group(
                 ]
             )
 
+        intervals_for_trend = intervals_including_current.iloc[-5:].values
+        if len(intervals_for_trend) >= 3:
+            slope = float(np.polyfit(range(len(intervals_for_trend)), intervals_for_trend, 1)[0])
+            interval_trend_5 = slope / max(float(avg_interval_so_far), 1.0)
+        else:
+            interval_trend_5 = 0.0
+
+        prev_release = previous_releases.iloc[-1]
+        last_type_encoded = stable_hash_int(str(prev_release["type"]), 10)
+        type_changed = int(str(current_release["type"]) != str(prev_release["type"]))
+
         day_of_year = int(current_date.dayofyear)
         day_sin = float(np.sin(2 * np.pi * day_of_year / 366.0))
         day_cos = float(np.cos(2 * np.pi * day_of_year / 366.0))
@@ -272,6 +283,9 @@ def extract_features_from_group(
             "recent_solo_30d": int(recent_solo_30d),
             "days_since_last_solo": float(days_since_last_solo),
             "solo_frequency": float(solo_frequency),
+            "interval_trend_5": interval_trend_5,
+            "last_type_encoded": last_type_encoded,
+            "type_changed": type_changed,
             "target_days": float(target_days),
         }
         features.append(feature_dict)
@@ -312,7 +326,8 @@ def train_lightgbm_quantile_models(
         "releases_this_year", "releases_last_year",
         "month", "quarter", "day_sin", "day_cos",
         "recent_solos_6m", "recent_solos_1y", "recent_solos_2y",
-        "recent_solo_30d", "days_since_last_solo", "solo_frequency"
+        "recent_solo_30d", "days_since_last_solo", "solo_frequency",
+        "interval_trend_5", "last_type_encoded", "type_changed",
     ]
     X = df_train[feature_cols]
     Y = df_train["target_days_log"]
@@ -449,6 +464,17 @@ def predict_next_release_lightgbm_interval(
     releases_this_year = len(previous_releases[previous_releases["release_date"].dt.year == last_date.year])
     releases_last_year = len(previous_releases[previous_releases["release_date"].dt.year == last_date.year - 1])
 
+    intervals_for_trend = intervals_including_current.iloc[-5:].values
+    if len(intervals_for_trend) >= 3:
+        slope = float(np.polyfit(range(len(intervals_for_trend)), intervals_for_trend, 1)[0])
+        interval_trend_5 = slope / max(float(avg_interval_so_far), 1.0)
+    else:
+        interval_trend_5 = 0.0
+
+    second_last_release = df_cut.iloc[-2] if len(df_cut) >= 2 else last_release
+    last_type_encoded = stable_hash_int(str(second_last_release["type"]), 10)
+    type_changed = int(str(last_release["type"]) != str(second_last_release["type"]))
+
     day_of_year = int(last_date.dayofyear)
     day_sin = float(np.sin(2 * np.pi * day_of_year / 366.0))
     day_cos = float(np.cos(2 * np.pi * day_of_year / 366.0))
@@ -484,6 +510,9 @@ def predict_next_release_lightgbm_interval(
         "recent_solo_30d",
         "days_since_last_solo",
         "solo_frequency",
+        "interval_trend_5",
+        "last_type_encoded",
+        "type_changed",
     ]
 
     feature_dict = {
@@ -517,6 +546,9 @@ def predict_next_release_lightgbm_interval(
         "recent_solo_30d": float(recent_solo_30d),
         "days_since_last_solo": float(days_since_last_solo),
         "solo_frequency": float(solo_frequency),
+        "interval_trend_5": interval_trend_5,
+        "last_type_encoded": last_type_encoded,
+        "type_changed": type_changed,
     }
 
     X_pred = pd.DataFrame([feature_dict], columns=feature_cols)
