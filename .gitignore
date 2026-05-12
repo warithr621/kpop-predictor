@@ -29,3 +29,5 @@ frontend/.env.local
 .idea/
 *.swp
 .claude/
+
+analysis.py
