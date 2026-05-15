@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pandas
+lightgbm
+scikit-learn
+numpy
+pydantic
+python-dateutil
