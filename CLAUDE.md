@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Backend (FastAPI)**
 ```bash
-pip install fastapi uvicorn pandas lightgbm scikit-learn numpy pydantic python-dateutil
+pip install -r requirements.txt
 cd backend
 uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
@@ -23,19 +23,26 @@ npm run dev    # runs on port 3000
 python data_collection.py
 ```
 
+**Backtest / model evaluation**:
+```bash
+python analysis.py
+```
+
 ## Architecture
 
 This is a full-stack K-pop release prediction app with three layers:
 
 ### Data layer
-- `albums/` — one CSV per artist/group with columns `title, type, release_date`, scraped from MusicBrainz via `data_collection.py`
+- `albums/` — one CSV per artist/group with columns `title, type, release_date` (and optional `secondary_types, track_count, label`), scraped from MusicBrainz via `data_collection.py`. Compilations, live albums, remixes, and demos are filtered out at load time.
 - `artist_ids.json` — cached MusicBrainz artist IDs to avoid re-scraping
 - `info.py` — single source of truth for group metadata: `KPOP_GROUPS` (organized by generation), `SOLOISTS` (soloist → parent group), `GENERATION_MAPPINGS`, `GROUP_COMPANIES`
+- `requirements.txt` — Python backend dependencies
 
 ### Backend (`backend/`)
-- `model.py` — all ML logic: feature engineering, LightGBM quantile regression (p10/p50/p90), and prediction. The model trains on log-transformed inter-release intervals and uses `stable_hash_int` (SHA-256-based) for deterministic categorical encoding instead of sklearn `LabelEncoder` (avoids encode/decode mismatch across runs).
+- `model.py` — all ML logic: feature engineering, LightGBM quantile regression (p10/p50/p90), and prediction. The model trains on log-transformed inter-release intervals and uses `stable_hash_int` (SHA-256-based) for deterministic categorical encoding instead of sklearn `LabelEncoder` (avoids encode/decode mismatch across runs). Cache key prefix is `model_v4_quantiles_`.
 - `app.py` — FastAPI app exposing `/api/groups`, `/api/releases`, `/api/predict`, `/api/status`. Trained models are pickled to `backend/cache/` keyed by a data signature + cutoff date. The cache is invalidated automatically when CSV files change.
 - `backend/__init__.py` — empty, makes `backend` a package so `from backend.model import ...` works when running from the repo root.
+- `analysis.py` (root) — offline backtest script: trains on pre-2024 data, evaluates on 2024+ releases, prints MAE/MAPE/coverage/within-N-weeks stats broken down by release type and group.
 
 ### Frontend (`frontend/`)
 - Next.js (Pages Router) + Tailwind CSS
