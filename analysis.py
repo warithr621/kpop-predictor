@@ -32,10 +32,10 @@ from info import KPOP_GROUPS, GENERATION_MAPPINGS
 
 
 SHORTLIST = [
-    "Stray Kids", "i-dle", "ATEEZ", "ITZY", "TXT",
-    "TREASURE", "STAYC", "aespa", "ENHYPEN", "IVE",
-    "NMIXX", "LE SSERAFIM", "KISS OF LIFE", "RIIZE",
-    "BABYMONSTER", "MEOVV", "ILLIT", "Hearts2Hearts",
+    "aespa", "ATEEZ", "BABYMONSTER", "ENHYPEN", "Hearts2Hearts",
+    "i-dle", "ILLIT", "ITZY", "IVE", "KISS OF LIFE",
+    "LE SSERAFIM", "MEOVV", "NMIXX", "RIIZE", "STAYC",
+    "Stray Kids", "TREASURE", "TXT",
 ]
 
 SHORTLIST_4TH = [g for g in SHORTLIST if GENERATION_MAPPINGS.get(g) == 4]
