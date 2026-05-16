@@ -278,13 +278,10 @@ def extract_features_from_group(
             "avg_interval_so_far": float(avg_interval_so_far),
             "median_interval_so_far": float(median_interval_so_far),
             "std_interval_so_far": float(std_interval_so_far),
-            "min_interval_so_far": float(min_interval_so_far),
-            "max_interval_so_far": float(max_interval_so_far),
+            "interval_cv": float(std_interval_so_far / avg_interval_so_far) if avg_interval_so_far > 0 else 0.0,
             "ema_interval_so_far": float(ema_interval),
             "avg_last_3_intervals": float(avg_last_3_intervals),
             "median_last_3_intervals": float(median_last_3_intervals),
-            "last_interval_2": float(last_interval_2),
-            "last_interval_3": float(last_interval_3),
             "std_last_5_intervals": float(std_last_5_intervals),
             "releases_this_year": len(
                 previous_releases[previous_releases["release_date"].dt.year == current_date.year]
@@ -292,13 +289,12 @@ def extract_features_from_group(
             "releases_last_year": len(
                 previous_releases[previous_releases["release_date"].dt.year == current_date.year - 1]
             ),
-            "month": int(current_date.month),
-            "quarter": int((current_date.month - 1) // 3 + 1),
             "day_sin": day_sin,
             "day_cos": day_cos,
+            "comeback_season": int(int(current_date.month) in {1, 2, 3, 7, 8, 9}),
+            "days_since_previous_norm": float(days_since_previous) / max(float(avg_interval_so_far), 1.0),
+            "release_acceleration": float(avg_last_3_intervals) / max(float(avg_interval_so_far), 1.0),
             "recent_solos_6m": int(recent_solos_6m),
-            "recent_solos_1y": int(recent_solos_1y),
-            "recent_solos_2y": int(recent_solos_2y),
             "recent_solo_30d": int(recent_solo_30d),
             "days_since_last_solo": float(days_since_last_solo),
             "solo_frequency": float(solo_frequency),
@@ -341,12 +337,13 @@ def train_lightgbm_quantile_models(
         "group_encoded", "generation", "type_encoded", "company_encoded",
         "release_number", "days_since_debut", "days_since_previous",
         "avg_interval_so_far", "median_interval_so_far", "std_interval_so_far",
-        "min_interval_so_far", "max_interval_so_far",
+        "interval_cv",
         "ema_interval_so_far", "avg_last_3_intervals", "median_last_3_intervals",
-        "last_interval_2", "last_interval_3", "std_last_5_intervals",
+        "std_last_5_intervals",
         "releases_this_year", "releases_last_year",
-        "month", "quarter", "day_sin", "day_cos",
-        "recent_solos_6m", "recent_solos_1y", "recent_solos_2y",
+        "day_sin", "day_cos",
+        "comeback_season", "days_since_previous_norm", "release_acceleration",
+        "recent_solos_6m",
         "recent_solo_30d", "days_since_last_solo", "solo_frequency",
         "interval_trend_5", "last_type_encoded", "type_changed",
         "track_count_log",
@@ -354,25 +351,46 @@ def train_lightgbm_quantile_models(
     X = df_train[feature_cols]
     Y = df_train["target_days_log"]
 
+    # Temporal split for early stopping: latest 15% of the date range → val set.
+    dates = pd.to_datetime(df_train["as_of_date"])
+    date_min, date_max = dates.min(), dates.max()
+    val_threshold = date_min + (date_max - date_min) * 0.85
+    val_mask = dates >= val_threshold
+    X_tr, Y_tr = X[~val_mask], Y[~val_mask]
+    X_val, Y_val = X[val_mask], Y[val_mask]
+
+    params_base = {
+        "objective": "quantile",
+        "metric": "mae",
+        "boosting_type": "gbdt",
+        "num_leaves": 31,
+        "learning_rate": 0.05,
+        "feature_fraction": 0.8,
+        "bagging_fraction": 0.8,
+        "bagging_freq": 5,
+        "min_child_samples": 10,
+        "lambda_l1": 0.1,
+        "lambda_l2": 0.1,
+        "verbose": -1,
+        "random_state": 42,
+        "n_estimators": 500,
+    }
+
     models: Dict[float, lgb.LGBMRegressor] = {}
     for q in quantiles:
-        params = {
-            "objective": "quantile",
-            "alpha": q,
-            "metric": "mae",
-            "boosting_type": "gbdt",
-            "num_leaves": 31,
-            "learning_rate": 0.05,
-            "feature_fraction": 0.9,
-            "bagging_fraction": 0.8,
-            "bagging_freq": 5,
-            "verbose": -1,
-            "random_state": 42,
-            "n_estimators": 300,
-        }
-        model = lgb.LGBMRegressor(**params)
-        model.fit(X, Y)
-        models[q] = model
+        params = {**params_base, "alpha": q}
+        # Phase 1: find best n_estimators via early stopping on val set.
+        probe = lgb.LGBMRegressor(**params)
+        probe.fit(
+            X_tr, Y_tr,
+            eval_set=[(X_val, Y_val)],
+            callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(-1)],
+        )
+        best_n = probe.best_iteration_ or params["n_estimators"]
+        # Phase 2: refit on full data with the found n_estimators.
+        final = lgb.LGBMRegressor(**{**params, "n_estimators": best_n})
+        final.fit(X, Y)
+        models[q] = final
 
     return models
 
@@ -518,23 +536,19 @@ def predict_next_release_lightgbm_interval(
         "avg_interval_so_far",
         "median_interval_so_far",
         "std_interval_so_far",
-        "min_interval_so_far",
-        "max_interval_so_far",
+        "interval_cv",
         "ema_interval_so_far",
         "avg_last_3_intervals",
         "median_last_3_intervals",
-        "last_interval_2",
-        "last_interval_3",
         "std_last_5_intervals",
         "releases_this_year",
         "releases_last_year",
-        "month",
-        "quarter",
         "day_sin",
         "day_cos",
+        "comeback_season",
+        "days_since_previous_norm",
+        "release_acceleration",
         "recent_solos_6m",
-        "recent_solos_1y",
-        "recent_solos_2y",
         "recent_solo_30d",
         "days_since_last_solo",
         "solo_frequency",
@@ -543,6 +557,8 @@ def predict_next_release_lightgbm_interval(
         "type_changed",
         "track_count_log",
     ]
+
+    interval_cv = float(std_interval_so_far / avg_interval_so_far) if avg_interval_so_far > 0 else 0.0
 
     feature_dict = {
         "group_encoded": stable_hash_int(str(group_key), 1000),
@@ -555,23 +571,19 @@ def predict_next_release_lightgbm_interval(
         "avg_interval_so_far": float(avg_interval_so_far),
         "median_interval_so_far": float(median_interval_so_far),
         "std_interval_so_far": float(std_interval_so_far),
-        "min_interval_so_far": float(min_interval_so_far),
-        "max_interval_so_far": float(max_interval_so_far),
+        "interval_cv": interval_cv,
         "ema_interval_so_far": float(ema_interval),
         "avg_last_3_intervals": float(avg_last_3_intervals),
         "median_last_3_intervals": float(median_last_3_intervals),
-        "last_interval_2": float(last_interval_2),
-        "last_interval_3": float(last_interval_3),
         "std_last_5_intervals": float(std_last_5_intervals),
         "releases_this_year": float(releases_this_year),
         "releases_last_year": float(releases_last_year),
-        "month": int(last_date.month),
-        "quarter": int((last_date.month - 1) // 3 + 1),
         "day_sin": float(day_sin),
         "day_cos": float(day_cos),
+        "comeback_season": int(int(last_date.month) in {1, 2, 3, 7, 8, 9}),
+        "days_since_previous_norm": float(days_since_previous) / max(float(avg_interval_so_far), 1.0),
+        "release_acceleration": float(avg_last_3_intervals) / max(float(avg_interval_so_far), 1.0),
         "recent_solos_6m": float(recent_solos_6m),
-        "recent_solos_1y": float(recent_solos_1y),
-        "recent_solos_2y": float(recent_solos_2y),
         "recent_solo_30d": float(recent_solo_30d),
         "days_since_last_solo": float(days_since_last_solo),
         "solo_frequency": float(solo_frequency),
