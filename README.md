@@ -1,6 +1,6 @@
 # K-pop Release Prediction Project
 
-The goal of this project is to use historical data scraped from MusicBrainz API to build a model that can forecast future K-pop releases. All data is updated as of May 11, 2026. Across top 4th and 5th gen groups, the model has a median error of 4 weeks across all groups, and a prediction accuracy of 89% within a 12-week window.
+The goal of this project is to use historical data scraped from MusicBrainz API to build a model that can forecast future K-pop releases. All data is updated as of May 11, 2026. Across top 4th and 5th gen groups, the model has a median error of <6 weeks across all groups, and a prediction accuracy of 97% within a 12-week window.
 
 ## Local Test Instructions
 
