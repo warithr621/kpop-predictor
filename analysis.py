@@ -1,19 +1,20 @@
 """
-Leave-last-out evaluation for the K-pop release predictor.
+Evaluation suite for the K-pop release predictor.
 
-For each group, withholds the most recent release from the model (cutoff = last_release_date - 1 day),
-generates a prediction, then compares pred_date_med to the actual release date.
+Sections:
+  1. Walk-forward CV — trains at 5 historical cutoffs, predicts each group's
+     next release, aggregates across all (cutoff, group) pairs. Primary metric
+     for detecting overfitting during development.
+  2. Leave-last-out — trains on full data, withholds each group's most recent
+     release. Matches the numbers reported in the project readme.
 
-Prints:
-  - Overall stats across all groups
-  - Per-group breakdown for 18 shortlisted groups
-  - Within-window accuracy at ±6/8/12/18/24 weeks for both sets
+Prints within-window accuracy at ±6/8/12/18/24 weeks for both sections.
 """
 from __future__ import annotations
 
 import os
 import sys
-from datetime import timedelta
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -32,7 +33,7 @@ from backend.model import (
     predict_next_release_lightgbm_interval,
     get_current_cutoff_dates,
 )
-from info import KPOP_GROUPS
+from info import KPOP_GROUPS, GENERATION_MAPPINGS
 
 
 SHORTLIST = [
@@ -41,6 +42,9 @@ SHORTLIST = [
     "NMIXX", "LE SSERAFIM", "KISS OF LIFE", "RIIZE",
     "BABYMONSTER", "MEOVV", "ILLIT", "Hearts2Hearts",
 ]
+
+SHORTLIST_4TH = [g for g in SHORTLIST if GENERATION_MAPPINGS.get(g) == 4]
+SHORTLIST_5TH = [g for g in SHORTLIST if GENERATION_MAPPINGS.get(g) == 5]
 
 WEEK_THRESHOLDS = [6, 8, 12, 18, 24]
 
@@ -129,25 +133,29 @@ def run_leave_last_out():
     shortlist_df = df[df["group"].isin(SHORTLIST)].copy()
     print_stats("SHORTLIST (18 groups)", shortlist_df)
 
-    # Per-group breakdown for shortlist
-    print(f"\n{'='*60}")
-    print("  Per-group breakdown (shortlist, sorted by error)")
-    print(f"{'='*60}")
-    shortlist_sorted = shortlist_df.sort_values("error_days")
-    print(f"  {'Group':<22} {'Actual':<12} {'Predicted':<12} {'Error':>8}  {'Direction'}")
-    print(f"  {'-'*22} {'-'*12} {'-'*12} {'-'*8}  {'-'*9}")
-    for _, row in shortlist_sorted.iterrows():
-        direction = f"+{row['signed_days']}d" if row['signed_days'] >= 0 else f"{row['signed_days']}d"
-        print(f"  {row['group']:<22} {str(row['actual']):<12} {str(row['pred_med']):<12} {row['error_days']:>6}d  {direction}")
+    def print_breakdown(label, subset_df):
+        subset_sorted = subset_df.sort_values("error_days")
+        print(f"\n{'='*60}")
+        print(f"  {label} — per-group breakdown (sorted by error)")
+        print(f"{'='*60}")
+        print(f"  {'Group':<22} {'Actual':<12} {'Predicted':<12} {'Error':>8}  {'Direction'}")
+        print(f"  {'-'*22} {'-'*12} {'-'*12} {'-'*8}  {'-'*9}")
+        for _, row in subset_sorted.iterrows():
+            direction = f"+{row['signed_days']}d" if row['signed_days'] >= 0 else f"{row['signed_days']}d"
+            print(f"  {row['group']:<22} {str(row['actual']):<12} {str(row['pred_med']):<12} {row['error_days']:>6}d  {direction}")
+        errs = subset_df["error_days"].values
+        print(f"\n  Summary:")
+        print(f"  {'Threshold':<15} {'Accuracy':>10}")
+        print(f"  {'-'*15} {'-'*10}")
+        for w in WEEK_THRESHOLDS:
+            acc = window_acc(errs, w)
+            print(f"  ±{w:2d} weeks        {acc:>9.1f}%")
+        print(f"  Median error   {np.median(errs):>9.1f}d")
 
-    # Window accuracy table for shortlist
-    print(f"\n  Average stats across shortlist:")
-    print(f"  {'Threshold':<15} {'Accuracy':>10}")
-    print(f"  {'-'*15} {'-'*10}")
-    for w in WEEK_THRESHOLDS:
-        acc = window_acc(shortlist_df["error_days"].values, w)
-        print(f"  ±{w:2d} weeks        {acc:>9.1f}%")
-    print(f"  Median error   {np.median(shortlist_df['error_days'].values):>9.1f}d")
+    df4 = df[df["group"].isin(SHORTLIST_4TH)].copy()
+    df5 = df[df["group"].isin(SHORTLIST_5TH)].copy()
+    print_breakdown("4th Gen", df4)
+    print_breakdown("5th Gen", df5)
 
     return df
 
