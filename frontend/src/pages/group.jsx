@@ -4,17 +4,20 @@ import { fetchGroups, fetchReleases, postPredict } from '@/lib/api';
 import Timeline from '@/components/Timeline';
 
 function PredictionCard({ result, accentColor, glowColor }) {
-  const low  = new Date(result.pred_date_low  + 'T00:00:00');
-  const med  = new Date(result.pred_date_med  + 'T00:00:00');
-  const high = new Date(result.pred_date_high + 'T00:00:00');
+  // API returns ISO datetime strings ("2026-05-17T00:00:00") — slice to date only
+  // before parsing to avoid "Invalid Date" from double T suffix
+  const parseDate = s => new Date(s.slice(0, 10) + 'T12:00:00');
+  const low  = parseDate(result.pred_date_low);
+  const med  = parseDate(result.pred_date_med);
+  const high = parseDate(result.pred_date_high);
 
-  const fmt = (d, opts) =>
-    d.toLocaleDateString(undefined, opts || { year: 'numeric', month: 'long', day: 'numeric' });
+  const fmt = d =>
+    d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
   const fmtShort = d =>
     d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
   const total = high - low || 1;
-  const medPct = ((med - low) / total) * 100;
+  const medPct = Math.max(0, Math.min(100, ((med - low) / total) * 100));
 
   const today = new Date();
   const daysFromNow = Math.round((med - today) / 86400000);
@@ -35,56 +38,39 @@ function PredictionCard({ result, accentColor, glowColor }) {
 
       {/* Range bar */}
       <div style={{ position: 'relative', marginBottom: '10px' }}>
-        {/* Track */}
         <div style={{
           height: '3px',
           background: 'rgba(255,255,255,0.13)',
           borderRadius: '2px',
           position: 'relative',
         }}>
-          {/* Filled segment */}
           <div style={{
             position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 0,
-            bottom: 0,
+            left: 0, right: 0, top: 0, bottom: 0,
             background: `linear-gradient(to right, rgba(255,255,255,0.12), ${accentColor}55, rgba(255,255,255,0.12))`,
             borderRadius: '2px',
           }} />
           {/* Low dot */}
           <div style={{
-            position: 'absolute',
-            left: '0%',
-            top: '50%',
+            position: 'absolute', left: '0%', top: '50%',
             transform: 'translate(-50%, -50%)',
-            width: '10px',
-            height: '10px',
-            borderRadius: '50%',
+            width: '10px', height: '10px', borderRadius: '50%',
             background: 'rgba(255,255,255,0.4)',
             border: '2px solid rgba(255,255,255,0.7)',
           }} />
           {/* Med dot */}
           <div style={{
-            position: 'absolute',
-            left: `${medPct}%`,
-            top: '50%',
+            position: 'absolute', left: `${medPct}%`, top: '50%',
             transform: 'translate(-50%, -50%)',
-            width: '14px',
-            height: '14px',
-            borderRadius: '50%',
+            width: '14px', height: '14px', borderRadius: '50%',
             background: accentColor,
             boxShadow: `0 0 12px ${glowColor}`,
           }} />
           {/* High dot */}
           <div style={{
-            position: 'absolute',
-            left: '100%',
-            top: '50%',
+            position: 'absolute', left: '100%', top: '50%',
             transform: 'translate(-50%, -50%)',
-            width: '10px',
-            height: '10px',
-            borderRadius: '50%',
+            width: '10px', height: '10px', borderRadius: '50%',
             background: 'rgba(255,255,255,0.4)',
             border: '2px solid rgba(255,255,255,0.7)',
           }} />
@@ -92,7 +78,7 @@ function PredictionCard({ result, accentColor, glowColor }) {
       </div>
 
       {/* Date labels */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
         <div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>{fmtShort(low)}</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>Optimistic</div>
@@ -107,23 +93,23 @@ function PredictionCard({ result, accentColor, glowColor }) {
         </div>
       </div>
 
-      {/* Footer meta */}
-      {result.uncertainty_days != null && (
-        <div style={{
-          fontFamily: 'var(--font-body)',
-          fontSize: '12px',
-          color: 'var(--text-secondary)',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-          paddingTop: '14px',
-        }}>
-          Uncertainty ±{Math.round(result.uncertainty_days)} days
-          {result.cutoff_date && (
-            <span style={{ marginLeft: '16px', color: 'var(--text-muted)' }}>
-              Data through {result.cutoff_date}
-            </span>
-          )}
-        </div>
-      )}
+      {/* Info note */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '9px',
+        padding: '11px 14px',
+        borderRadius: '9px',
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.07)',
+      }}>
+        <span style={{ fontSize: '13px', color: 'var(--text-muted)', flexShrink: 0, lineHeight: '20px' }}>ⓘ</span>
+        <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.6, textAlign: 'center' }}>
+          <strong style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Optimistic</strong> is the p10 estimate: only 10% of comparable groups release this quickly. <br />
+          <strong style={{ color: accentColor, fontWeight: 600 }}>Most Likely</strong> is the p50 median estimate. <br />
+          <strong style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Late estimate</strong> is the p90 estimate: 90% of comparable groups have released by this date.
+        </span>
+      </div>
     </div>
   );
 }
