@@ -366,7 +366,7 @@ def prepare_training_data(data_by_group: Dict[str, pd.DataFrame], cutoff: date) 
 
 def train_lightgbm_quantile_models(
     df_train: pd.DataFrame,
-    quantiles: List[float] = [0.1, 0.5, 0.9],
+    quantiles: List[float] = [0.25, 0.5, 0.75],
 ) -> Dict[float, lgb.LGBMRegressor]:
     feature_cols = [
         "group_encoded", "generation", "type_encoded", "company_encoded",
@@ -651,25 +651,25 @@ def predict_next_release_lightgbm_interval(
         return max(1, int(np.round(pred_days_float)))
 
     quantiles = sorted(models.keys())
-    q10 = 0.1 if 0.1 in models else quantiles[0]
+    q25 = 0.25 if 0.25 in models else quantiles[0]
     q50 = 0.5 if 0.5 in models else min(quantiles, key=lambda x: abs(x - 0.5))
-    q90 = 0.9 if 0.9 in models else quantiles[-1]
+    q75 = 0.75 if 0.75 in models else quantiles[-1]
 
-    pred_log_10 = float(models[q10].predict(X_pred)[0])
+    pred_log_25 = float(models[q25].predict(X_pred)[0])
     pred_log_50 = float(models[q50].predict(X_pred)[0])
-    pred_log_90 = float(models[q90].predict(X_pred)[0])
+    pred_log_75 = float(models[q75].predict(X_pred)[0])
 
-    pred_days_10 = pred_days_from_log(pred_log_10, "floor")
+    pred_days_25 = pred_days_from_log(pred_log_25, "floor")
     pred_days_50 = pred_days_from_log(pred_log_50, "round")
-    pred_days_90 = pred_days_from_log(pred_log_90, "ceil")
+    pred_days_75 = pred_days_from_log(pred_log_75, "ceil")
 
     # Enforce ordering on the implied intervals.
-    pred_days_10 = min(pred_days_10, pred_days_50)
-    pred_days_90 = max(pred_days_90, pred_days_50)
+    pred_days_25 = min(pred_days_25, pred_days_50)
+    pred_days_75 = max(pred_days_75, pred_days_50)
 
-    pred_date_10_raw = last_date + timedelta(days=pred_days_10)
+    pred_date_25_raw = last_date + timedelta(days=pred_days_25)
     pred_date_50_raw = last_date + timedelta(days=pred_days_50)
-    pred_date_90_raw = last_date + timedelta(days=pred_days_90)
+    pred_date_75_raw = last_date + timedelta(days=pred_days_75)
 
     # Advance all three quantiles by the same number of p50-cycles so they clear
     # min_prediction_dt. Using a shared cycle count (anchored on p50) prevents the
@@ -679,21 +679,21 @@ def predict_next_release_lightgbm_interval(
     else:
         cycles = 0
 
-    pred_date_10 = pred_date_10_raw + timedelta(days=cycles * pred_days_10)
+    pred_date_25 = pred_date_25_raw + timedelta(days=cycles * pred_days_25)
     pred_date_50 = pred_date_50_raw + timedelta(days=cycles * pred_days_50)
-    pred_date_90 = pred_date_90_raw + timedelta(days=cycles * pred_days_90)
+    pred_date_75 = pred_date_75_raw + timedelta(days=cycles * pred_days_75)
 
-    # p10 may still be before min_prediction_dt when pred_days_10 << pred_days_50; clamp it.
-    pred_date_10 = max(pred_date_10, min_prediction_dt)
+    # p25 may still be before min_prediction_dt when pred_days_25 << pred_days_50; clamp it.
+    pred_date_25 = max(pred_date_25, min_prediction_dt)
 
     # Single authoritative sort: keep (date, days) pairs together so both fields are
     # consistent regardless of quantile model inversion, cycling edge cases, or the
-    # min_prediction_dt clamp shifting p10's date independently of its day count.
+    # min_prediction_dt clamp shifting p25's date independently of its day count.
     pairs = sorted(
         [
-            (pred_date_10, pred_days_10),
+            (pred_date_25, pred_days_25),
             (pred_date_50, pred_days_50),
-            (pred_date_90, pred_days_90),
+            (pred_date_75, pred_days_75),
         ],
         key=lambda x: x[0],
     )
