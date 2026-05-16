@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import glob
 import hashlib
+import math
 import os
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
@@ -626,11 +627,6 @@ def predict_next_release_lightgbm_interval(
     q50 = 0.5 if 0.5 in models else min(quantiles, key=lambda x: abs(x - 0.5))
     q90 = 0.9 if 0.9 in models else quantiles[-1]
 
-    def shift_date(date_value: date, step_days: int) -> date:
-        while date_value < min_prediction_dt:
-            date_value = date_value + timedelta(days=step_days)
-        return date_value
-
     pred_log_10 = float(models[q10].predict(X_pred)[0])
     pred_log_50 = float(models[q50].predict(X_pred)[0])
     pred_log_90 = float(models[q90].predict(X_pred)[0])
@@ -643,11 +639,25 @@ def predict_next_release_lightgbm_interval(
     pred_days_10 = min(pred_days_10, pred_days_50)
     pred_days_90 = max(pred_days_90, pred_days_50)
 
-    pred_date_10 = shift_date(last_date + timedelta(days=pred_days_10), pred_days_10)
-    pred_date_50 = shift_date(last_date + timedelta(days=pred_days_50), pred_days_50)
-    pred_date_90 = shift_date(last_date + timedelta(days=pred_days_90), pred_days_90)
+    pred_date_10_raw = last_date + timedelta(days=pred_days_10)
+    pred_date_50_raw = last_date + timedelta(days=pred_days_50)
+    pred_date_90_raw = last_date + timedelta(days=pred_days_90)
 
-    # Enforce ordering on the dates as well.
+    # Advance all three quantiles by the same number of p50-cycles so they clear
+    # min_prediction_dt. Using a shared cycle count (anchored on p50) prevents the
+    # independent-loop approach from landing two quantiles on the same date.
+    if pred_date_50_raw < min_prediction_dt:
+        cycles = math.ceil((min_prediction_dt - pred_date_50_raw).days / pred_days_50)
+    else:
+        cycles = 0
+
+    pred_date_10 = pred_date_10_raw + timedelta(days=cycles * pred_days_10)
+    pred_date_50 = pred_date_50_raw + timedelta(days=cycles * pred_days_50)
+    pred_date_90 = pred_date_90_raw + timedelta(days=cycles * pred_days_90)
+
+    # p10 may still be before min_prediction_dt when pred_days_10 << pred_days_50; clamp it.
+    pred_date_10 = max(pred_date_10, min_prediction_dt)
+
     pred_date_low = min(pred_date_10, pred_date_50)
     pred_date_high = max(pred_date_90, pred_date_50)
 
