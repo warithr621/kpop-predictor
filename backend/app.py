@@ -111,7 +111,7 @@ def _load_or_train_model(cutoff_date: date = DEFAULT_CUTOFF):
     # Include cutoff date in cache key to avoid stale cache when using current date
     cutoff_str = cutoff_date.isoformat()
     # Bump this when the feature schema / training objective changes.
-    cache_key = f"model_v4_quantiles_{signature}_{cutoff_str}"
+    cache_key = f"model_v5_quantiles_{signature}_{cutoff_str}"
     cache_path = os.path.join(CACHE_DIR, f"{cache_key}.pkl")
     
     if os.path.exists(cache_path):
