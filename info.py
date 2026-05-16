@@ -161,7 +161,49 @@ GENERATION_MAPPINGS = {
 }
 
 
-# group -> parent company 
+# Military service records: group -> list of (member, enlist_date, discharge_date)
+# discharge_date is None if still serving. Non-Korean members are excluded (exempt).
+# Sources: jazminemedia.com, koreaboo.com, allkpop.com
+MILITARY_SERVICE = {
+	'BTS': [
+		('Jin',       '2022-12-13', '2024-06-12'),
+		('j-hope',    '2023-04-18', '2024-10-16'),
+		('Suga',      '2023-09-22', '2025-06-21'),
+		('RM',        '2023-12-11', '2025-06-10'),
+		('V',         '2023-12-11', '2025-06-10'),
+		('Jimin',     '2023-12-12', '2025-06-11'),
+		('Jung Kook', '2023-12-12', '2025-06-11'),
+	],
+	'EXO': [
+		# Lay (Chinese) is exempt
+		('Xiumin',   '2019-05-07', '2020-12-06'),
+		('D.O.',     '2019-07-01', '2021-01-25'),
+		('Suho',     '2020-05-14', '2022-02-13'),
+		('Chen',     '2020-10-26', '2022-04-25'),
+		('Chanyeol', '2021-03-29', '2022-09-28'),
+		('Baekhyun', '2021-05-06', '2023-02-05'),
+		('Kai',      '2023-05-11', '2025-02-10'),
+		('Sehun',    '2023-12-21', '2025-09-20'),
+	],
+	'GOT7': [
+		# Mark (US), Jackson (HK), BamBam (Thai) are exempt
+		('Jay B',    '2023-02-02', '2024-11-01'),
+		('Jinyoung', '2023-05-08', '2024-11-07'),
+		('Yugyeom',  '2025-09-01', None),
+		('Youngjae', '2025-11-27', None),
+	],
+	'Monsta X': [
+		('Shownu',   '2021-07-22', '2023-04-21'),
+		('Minhyuk',  '2023-04-04', '2024-10-03'),
+		('Joohoney', '2023-07-24', '2025-01-23'),
+		('Kihyun',   '2023-08-22', '2025-02-21'),
+		('Hyungwon', '2023-11-14', '2026-05-13'),
+		# I.M has not enlisted
+	],
+}
+
+
+# group -> parent company
 GROUP_COMPANIES = {
 	# 3rd Gen
 	'EXO': 'SM Entertainment',

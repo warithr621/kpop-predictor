@@ -16,7 +16,7 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from info import GENERATION_MAPPINGS, KPOP_GROUPS, SOLOISTS, GROUP_COMPANIES
+from info import GENERATION_MAPPINGS, KPOP_GROUPS, SOLOISTS, GROUP_COMPANIES, MILITARY_SERVICE
 
 
 DEFAULT_CUTOFF = date(2024, 12, 31)
@@ -54,6 +54,7 @@ SANITIZED_GENERATION_MAPPINGS = {sanitize(k): v for k, v in GENERATION_MAPPINGS.
 SANITIZED_GROUP_COMPANIES = {sanitize(k): v for k, v in GROUP_COMPANIES.items()}
 SANITIZED_SOLOISTS = {sanitize(soloist): sanitize(parent_group) for soloist, parent_group in SOLOISTS.items()}
 SOLOIST_ORIGINAL_BY_SANITIZED = {sanitize(soloist): soloist for soloist in SOLOISTS.keys()}
+SANITIZED_MILITARY_SERVICE = {sanitize(k): v for k, v in MILITARY_SERVICE.items()}
 
 
 def list_all_groups() -> List[str]:
@@ -102,6 +103,18 @@ def load_all_releases(albums_dir: str) -> Dict[str, pd.DataFrame]:
         if not df.empty:
             group_to_df[group] = df
     return group_to_df
+
+
+def members_in_military_at(group_key: str, as_of: pd.Timestamp) -> int:
+    """Count of members from group_key who were serving in the military on as_of date."""
+    records = SANITIZED_MILITARY_SERVICE.get(group_key, [])
+    count = 0
+    for _member, enlist_str, discharge_str in records:
+        enlist = pd.Timestamp(enlist_str)
+        discharge = pd.Timestamp(discharge_str) if discharge_str else pd.Timestamp("2099-12-31")
+        if enlist <= as_of <= discharge:
+            count += 1
+    return count
 
 
 def get_solo_releases_for_group(group_key: str, all_releases: Dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -294,6 +307,7 @@ def extract_features_from_group(
             "comeback_season": int(int(current_date.month) in {1, 2, 3, 7, 8, 9}),
             "days_since_previous_norm": float(days_since_previous) / max(float(avg_interval_so_far), 1.0),
             "release_acceleration": float(avg_last_3_intervals) / max(float(avg_interval_so_far), 1.0),
+            "members_in_military": members_in_military_at(parent_group_key, current_date),
             "recent_solos_6m": int(recent_solos_6m),
             "recent_solo_30d": int(recent_solo_30d),
             "days_since_last_solo": float(days_since_last_solo),
@@ -343,6 +357,7 @@ def train_lightgbm_quantile_models(
         "releases_this_year", "releases_last_year",
         "day_sin", "day_cos",
         "comeback_season", "days_since_previous_norm", "release_acceleration",
+        "members_in_military",
         "recent_solos_6m",
         "recent_solo_30d", "days_since_last_solo", "solo_frequency",
         "interval_trend_5", "last_type_encoded", "type_changed",
@@ -548,6 +563,7 @@ def predict_next_release_lightgbm_interval(
         "comeback_season",
         "days_since_previous_norm",
         "release_acceleration",
+        "members_in_military",
         "recent_solos_6m",
         "recent_solo_30d",
         "days_since_last_solo",
@@ -583,6 +599,7 @@ def predict_next_release_lightgbm_interval(
         "comeback_season": int(int(last_date.month) in {1, 2, 3, 7, 8, 9}),
         "days_since_previous_norm": float(days_since_previous) / max(float(avg_interval_so_far), 1.0),
         "release_acceleration": float(avg_last_3_intervals) / max(float(avg_interval_so_far), 1.0),
+        "members_in_military": members_in_military_at(parent_group_key, last_date),
         "recent_solos_6m": float(recent_solos_6m),
         "recent_solo_30d": float(recent_solo_30d),
         "days_since_last_solo": float(days_since_last_solo),
