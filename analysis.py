@@ -1,12 +1,7 @@
 """
 Evaluation suite for the K-pop release predictor.
 
-Sections:
-  1. Walk-forward CV — trains at 5 historical cutoffs, predicts each group's
-     next release, aggregates across all (cutoff, group) pairs. Primary metric
-     for detecting overfitting during development.
-  2. Leave-last-out — trains on full data, withholds each group's most recent
-     release. Matches the numbers reported in the project readme.
+Trains on full data, withholds each group's most recent release. Matches the numbers reported in the project readme.
 
 Prints within-window accuracy at ±6/8/12/18/24 weeks for both sections.
 """
@@ -70,6 +65,10 @@ def run_leave_last_out():
 
     results = []
     for group in ALL_GROUPS:
+        if GENERATION_MAPPINGS.get(group) == 3 and group != "TWICE":
+            continue
+            # TWICE is the only 3rd gen group that releases regularly enough (in past 2-3 years) to be relevant
+            # other than that, focus should be only on 4th + 5th gen groups
         group_key = sanitize(group)
         df_group = data_by_group.get(group_key)
         if df_group is None or df_group.empty:
