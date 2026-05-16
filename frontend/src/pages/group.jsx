@@ -14,7 +14,7 @@ function PredictionCard({ result, accentColor, glowColor }) {
   const fmt = d =>
     d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
   const fmtShort = d =>
-    d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
   const total = high - low || 1;
   const medPct = Math.max(0, Math.min(100, ((med - low) / total) * 100));

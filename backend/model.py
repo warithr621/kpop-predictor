@@ -686,16 +686,28 @@ def predict_next_release_lightgbm_interval(
     # p10 may still be before min_prediction_dt when pred_days_10 << pred_days_50; clamp it.
     pred_date_10 = max(pred_date_10, min_prediction_dt)
 
-    pred_date_low = min(pred_date_10, pred_date_50)
-    pred_date_high = max(pred_date_90, pred_date_50)
+    # Single authoritative sort: keep (date, days) pairs together so both fields are
+    # consistent regardless of quantile model inversion, cycling edge cases, or the
+    # min_prediction_dt clamp shifting p10's date independently of its day count.
+    pairs = sorted(
+        [
+            (pred_date_10, pred_days_10),
+            (pred_date_50, pred_days_50),
+            (pred_date_90, pred_days_90),
+        ],
+        key=lambda x: x[0],
+    )
+    pred_date_low,  pred_days_low  = pairs[0]
+    pred_date_med,  pred_days_med  = pairs[1]
+    pred_date_high, pred_days_high = pairs[2]
 
     return {
         "pred_date_low": pred_date_low,
-        "pred_date_med": pred_date_50,
+        "pred_date_med": pred_date_med,
         "pred_date_high": pred_date_high,
-        "pred_days_low": pred_days_10,
-        "pred_days_med": pred_days_50,
-        "pred_days_high": pred_days_90,
+        "pred_days_low": pred_days_low,
+        "pred_days_med": pred_days_med,
+        "pred_days_high": pred_days_high,
     }
 
 
