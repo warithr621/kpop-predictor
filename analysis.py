@@ -93,7 +93,6 @@ def run_leave_last_out():
         pred_high = to_date(pred["pred_date_high"])
         error_days = abs((pred_med - last_date).days)
         signed_days = (pred_med - last_date).days
-        in_interval = pred_low <= last_date <= pred_high
 
         results.append({
             "group": group,
@@ -102,8 +101,7 @@ def run_leave_last_out():
             "pred_low": pred_low,
             "pred_high": pred_high,
             "error_days": error_days,
-            "signed_days": signed_days,
-            "in_interval": in_interval,
+            "signed_days": signed_days
         })
 
     df = pd.DataFrame(results)
@@ -114,14 +112,12 @@ def run_leave_last_out():
     def print_stats(label, subset):
         errs = subset["error_days"].values
         signed = subset["signed_days"].values
-        cov = 100.0 * subset["in_interval"].mean()
         print(f"\n{'='*60}")
         print(f"  {label}  (n={len(subset)})")
         print(f"{'='*60}")
         print(f"  Median absolute error : {np.median(errs):.1f} days")
         print(f"  Mean absolute error   : {np.mean(errs):.1f} days")
         print(f"  Bias (median signed)  : {np.median(signed):+.1f} days")
-        print(f"  Interval coverage     : {cov:.1f}%")
         print()
         for w in WEEK_THRESHOLDS:
             print(f"  Within ±{w:2d} weeks       : {window_acc(errs, w):.1f}%")
