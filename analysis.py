@@ -36,12 +36,6 @@ from backend.model import (
 from info import KPOP_GROUPS, GENERATION_MAPPINGS
 
 
-EVAL_CUTOFFS = [
-    date(2023, 1, 1), date(2023, 7, 1),
-    date(2024, 1, 1), date(2024, 7, 1),
-    date(2025, 1, 1),
-]
-
 SHORTLIST = [
     "Stray Kids", "i-dle", "ATEEZ", "ITZY", "TXT",
     "TREASURE", "STAYC", "aespa", "ENHYPEN", "IVE",
@@ -61,82 +55,6 @@ def to_date(x):
     if hasattr(x, "date"):
         return x.date()
     return x
-
-
-def walk_forward_cv():
-    """Train at each eval cutoff and predict each group's next release."""
-    print("=" * 60)
-    print("  WALK-FORWARD CROSS-VALIDATION")
-    print("=" * 60)
-    print(f"  Cutoffs: {[str(c) for c in EVAL_CUTOFFS]}\n")
-
-    data_by_group = load_all_releases(ALBUMS_DIR)
-
-    all_results = []
-    for cutoff in EVAL_CUTOFFS:
-        df_train = prepare_training_data(data_by_group, cutoff)
-        if df_train.empty:
-            continue
-        models = train_lightgbm_quantile_models(df_train)
-
-        for group in ALL_GROUPS:
-            group_key = sanitize(group)
-            df_group = data_by_group.get(group_key)
-            if df_group is None or df_group.empty:
-                continue
-
-            # Need ≥2 releases before cutoff and ≥1 release after cutoff
-            cutoff_ts = pd.Timestamp(cutoff)
-            before = df_group[df_group["release_date"] <= cutoff_ts]
-            after = df_group[df_group["release_date"] > cutoff_ts]
-            if len(before) < 2 or len(after) == 0:
-                continue
-
-            actual_date = after.iloc[0]["release_date"]
-            if hasattr(actual_date, "date"):
-                actual_date = actual_date.date()
-
-            pred = predict_next_release_lightgbm_interval(
-                df_group=df_group,
-                models=models,
-                group_key=group_key,
-                cutoff=cutoff,
-                min_prediction_date=cutoff + timedelta(days=1),
-                all_releases=data_by_group,
-            )
-            if pred is None:
-                continue
-
-            pred_med = to_date(pred["pred_date_med"])
-            error_days = abs((pred_med - actual_date).days)
-            signed_days = (pred_med - actual_date).days
-
-            all_results.append({
-                "cutoff": cutoff,
-                "group": group,
-                "actual": actual_date,
-                "pred_med": pred_med,
-                "error_days": error_days,
-                "signed_days": signed_days,
-            })
-
-    df = pd.DataFrame(all_results)
-    if df.empty:
-        print("  No results — check cutoffs and data.\n")
-        return df
-
-    errs = df["error_days"].values
-    signed = df["signed_days"].values
-    print(f"  Total (cutoff, group) pairs evaluated: {len(df)}")
-    print(f"  Median absolute error : {np.median(errs):.1f} days")
-    print(f"  Mean absolute error   : {np.mean(errs):.1f} days")
-    print(f"  Bias (median signed)  : {np.median(signed):+.1f} days")
-    print()
-    for w in WEEK_THRESHOLDS:
-        acc = 100.0 * np.mean(errs <= w * 7)
-        print(f"  Within ±{w:2d} weeks       : {acc:.1f}%")
-    print()
-    return df
 
 
 def run_leave_last_out():
@@ -243,5 +161,4 @@ def run_leave_last_out():
 
 
 if __name__ == "__main__":
-    walk_forward_cv()
     run_leave_last_out()
