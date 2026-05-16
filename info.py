@@ -253,3 +253,12 @@ GROUP_COMPANIES = {
 }
 
 
+# Major K-pop award ceremonies: (name, month, day) — typical ceremony date
+# Groups target releases in the ~10 weeks prior to be fresh in voters' minds
+AWARD_SHOWS = [
+	("MAMA",                    11, 26),
+	("Melon Music Awards",      11, 30),
+	("Golden Disc Awards",       1, 10),
+	("Seoul Music Awards",       1, 22),
+	("Gaon Chart Music Awards",  2, 15),
+]

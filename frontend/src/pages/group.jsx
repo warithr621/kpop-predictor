@@ -14,7 +14,7 @@ function PredictionCard({ result, accentColor, glowColor }) {
   const fmt = d =>
     d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
   const fmtShort = d =>
-    d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
   const total = high - low || 1;
   const medPct = Math.max(0, Math.min(100, ((med - low) / total) * 100));
@@ -105,9 +105,9 @@ function PredictionCard({ result, accentColor, glowColor }) {
       }}>
         <span style={{ fontSize: '13px', color: 'var(--text-muted)', flexShrink: 0, lineHeight: '20px' }}>ⓘ</span>
         <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.6, textAlign: 'center' }}>
-          <strong style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Optimistic</strong> is the p10 estimate: only 10% of comparable groups release this quickly. <br />
+          <strong style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Optimistic</strong> is the p25 estimate: only 25% of comparable groups release this quickly. <br />
           <strong style={{ color: accentColor, fontWeight: 600 }}>Most Likely</strong> is the p50 median estimate. <br />
-          <strong style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Late estimate</strong> is the p90 estimate: 90% of comparable groups have released by this date.
+          <strong style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Late estimate</strong> is the p75 estimate: 75% of comparable groups have released by this date.
         </span>
       </div>
     </div>
