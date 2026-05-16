@@ -1,20 +1,263 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Typing animation */
-.typing-container {
-  display: inline-block;
-  border-right: 2px solid #e5e7eb;
-  white-space: nowrap;
-  overflow: hidden;
+:root {
+  --bg:           #0d0d28;
+  --bg-card:      rgba(255, 255, 255, 0.05);
+  --bg-card-hover:rgba(255, 255, 255, 0.09);
+  --accent-4th:   #f0287a;
+  --accent-5th:   #22d3ee;
+  --glow-4th:     rgba(240, 40, 122, 0.18);
+  --glow-5th:     rgba(34, 211, 238, 0.18);
+  --text-primary: #f0f0ff;
+  --text-secondary: rgba(240, 240, 255, 0.68);
+  --text-muted:   rgba(240, 240, 255, 0.48);
+  --border:       rgba(255, 255, 255, 0.09);
+  --border-hover: rgba(255, 255, 255, 0.16);
+  --font-display: 'Outfit', sans-serif;
+  --font-body:    'Outfit', sans-serif;
 }
 
-.fade-caret {
-  animation: caret 1s steps(1) infinite;
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(ellipse at 15% 40%, rgba(168, 85, 247, 0.1) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 15%, rgba(240, 40, 122, 0.07) 0%, transparent 50%),
+    radial-gradient(ellipse at 65% 85%, rgba(34, 211, 238, 0.06) 0%, transparent 50%),
+    var(--bg);
+  min-height: 100vh;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+
+/* ── Typing cursor ── */
+.typing-container {
+  display: inline;
+  border-right: 3px solid var(--accent-4th);
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  color: var(--text-primary);
+  padding-right: 2px;
+}
+
+.typing-cursor-blink {
+  animation: caret 0.9s steps(1) infinite;
+}
+
+.typing-cursor-done {
+  border-color: transparent;
 }
 
 @keyframes caret {
   50% { border-color: transparent; }
 }
 
+/* ── Gen header badges ── */
+.gen-badge-4th {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-4th);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(240, 40, 122, 0.1);
+  border: 1px solid rgba(240, 40, 122, 0.25);
+  display: inline-block;
+}
+
+.gen-badge-5th {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-5th);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  display: inline-block;
+}
+
+/* ── Group cards ── */
+.card-4th,
+.card-5th {
+  width: 100%;
+  text-align: left;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  position: relative;
+}
+
+.card-4th:hover {
+  background: rgba(240, 40, 122, 0.07);
+  border-color: rgba(240, 40, 122, 0.45);
+  transform: translateX(5px);
+  box-shadow: -3px 0 0 var(--accent-4th), 0 0 24px var(--glow-4th);
+}
+
+.card-5th:hover {
+  background: rgba(34, 211, 238, 0.06);
+  border-color: rgba(34, 211, 238, 0.4);
+  transform: translateX(5px);
+  box-shadow: -3px 0 0 var(--accent-5th), 0 0 24px var(--glow-5th);
+}
+
+.card-name {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.card-company {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ── Page subheading reveal ── */
+.subheading-reveal {
+  font-family: var(--font-body);
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+  margin-top: 10px;
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+/* ── Prediction result card ── */
+.pred-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  padding: 28px 32px;
+}
+
+.pred-label {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.pred-date-hero {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(26px, 4vw, 38px);
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.pred-date-sub {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ── Back button ── */
+.back-btn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.back-btn:hover {
+  background: rgba(255,255,255,0.09);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+/* ── Predict button ── */
+.predict-btn {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 13px 28px;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+
+.predict-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.predict-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.predict-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ── Section divider ── */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(255,255,255,0.08), transparent);
+  border: none;
+  margin: 24px 0;
+}
+
+/* ── Fade in animation ── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up {
+  animation: fadeUp 0.45s ease both;
+}
+
+.fade-up-delay-1 { animation-delay: 0.1s; }
+.fade-up-delay-2 { animation-delay: 0.2s; }
+.fade-up-delay-3 { animation-delay: 0.3s; }

@@ -1,55 +1,127 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
-import { useState } from 'react';
+import { fetchGroups } from '@/lib/api';
 import Typing from '@/components/Typing';
 
 export default function Home() {
   const router = useRouter();
-  const [showAbout, setShowAbout] = useState(false);
+  const [groups, setGroups]     = useState([]);
+  const [error, setError]       = useState(null);
+  const [loaded, setLoaded]     = useState(false);
+  const [headerDone, setHeaderDone] = useState(false);
+
+  useEffect(() => {
+    fetchGroups()
+      .then(gs => { setGroups(gs); setLoaded(true); })
+      .catch(e => setError(e.message));
+  }, []);
+
+  const { fourthGen, fifthGen } = useMemo(() => ({
+    fourthGen: groups.filter(g => g.generation === '4th Gen'),
+    fifthGen:  groups.filter(g => g.generation === '5th Gen'),
+  }), [groups]);
+
+  const onPick = name => router.push(`/group?name=${encodeURIComponent(name)}`);
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center text-gray-800 px-6" style={{ background: 'linear-gradient(135deg, #f3e8ff 0%, #eff6ff 50%, #e0e7ff 100%)' }}>
-      <div className="text-center mb-10">
-        <Typing text={"Welcome to Warith's K-pop Predictor!"} />
+    <main style={{ minHeight: '100vh', paddingTop: '64px', paddingBottom: '80px', paddingLeft: '24px', paddingRight: '24px' }}>
+
+      {/* ── Header ── */}
+      <div style={{ textAlign: 'center', marginBottom: '56px' }}>
+        <div>
+          <Typing
+            text="Welcome to Warith's K-pop Release Predictor"
+            onComplete={() => setHeaderDone(true)}
+          />
+        </div>
+        <p
+          className="subheading-reveal"
+          style={{
+            opacity: headerDone ? 1 : 0,
+            transform: headerDone ? 'translateY(0)' : 'translateY(10px)',
+          }}
+        >
+          Choose a Group
+        </p>
       </div>
 
-      <div className="flex gap-4">
-        <button
-          className="px-8 py-4 text-white rounded-full hover:scale-105 transition transform shadow-lg hover:shadow-xl font-semibold"
-          style={{ background: 'linear-gradient(to right, #a855f7, #3b82f6)' }}
-          onClick={() => router.push('/gen')}
-        >
-          Get Started
-        </button>
+      {/* ── Loading ── */}
+      {!loaded && !error && (
+        <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-body)', fontSize: '14px' }}>
+          Loading…
+        </p>
+      )}
 
-        <button
-          className="px-8 py-4 text-white rounded-full hover:scale-105 transition transform shadow-lg hover:shadow-xl font-semibold"
-          style={{ background: 'linear-gradient(to right, #6b7280, #4b5563)' }}
-          onClick={() => setShowAbout(true)}
-        >
-          About
-        </button>
-      </div>
+      {/* ── Error ── */}
+      {error && (
+        <div style={{
+          maxWidth: '420px',
+          margin: '0 auto',
+          padding: '12px 16px',
+          borderRadius: '10px',
+          background: 'rgba(255,60,60,0.08)',
+          border: '1px solid rgba(255,60,60,0.2)',
+          color: '#ff7070',
+          fontFamily: 'var(--font-body)',
+          fontSize: '14px',
+        }}>
+          {error}
+        </div>
+      )}
 
-      {showAbout && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
-            <h2 className="text-2xl font-semibold mb-4 text-gray-800">About K-pop Predictor</h2>
-            <p className="text-gray-600 mb-4">
-              This project uses machine learning to predict when K-pop groups will release their next album, EP, or single based on their historical release patterns.
-            </p>
-            <p className="text-gray-600 mb-4">
-              Select a generation (4th or 5th gen), choose your favorite group, and get an AI-powered prediction of their next release date!
-            </p>
-            <div className="flex justify-end">
-              <button
-                className="px-4 py-2 text-white rounded hover:opacity-90 transition"
-                style={{ backgroundColor: '#a855f7' }}
-                onClick={() => setShowAbout(false)}
-              >
-                Close
-              </button>
+      {/* ── Group grid ── */}
+      {loaded && groups.length > 0 && (
+        <div style={{
+          maxWidth: '820px',
+          margin: '0 auto',
+          display: 'grid',
+          gridTemplateColumns: '1fr 1px 1fr',
+          gap: '0 32px',
+        }}>
+
+          {/* 4th Gen */}
+          <div className="fade-up">
+            <div style={{ marginBottom: '14px' }}>
+              <span className="gen-badge-4th">4th Generation</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+              {fourthGen.map(g => (
+                <button
+                  key={g.name}
+                  className="card-4th"
+                  onClick={() => onPick(g.name)}
+                >
+                  <div className="card-name">{g.name}</div>
+                  {g.company && <div className="card-company">{g.company}</div>}
+                </button>
+              ))}
             </div>
           </div>
+
+          {/* Divider */}
+          <div style={{
+            background: 'linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.08) 15%, rgba(255,255,255,0.08) 85%, transparent 100%)',
+          }} />
+
+          {/* 5th Gen */}
+          <div className="fade-up fade-up-delay-1">
+            <div style={{ marginBottom: '14px' }}>
+              <span className="gen-badge-5th">5th Generation</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+              {fifthGen.map(g => (
+                <button
+                  key={g.name}
+                  className="card-5th"
+                  onClick={() => onPick(g.name)}
+                >
+                  <div className="card-name">{g.name}</div>
+                  {g.company && <div className="card-company">{g.company}</div>}
+                </button>
+              ))}
+            </div>
+          </div>
+
         </div>
       )}
     </main>
