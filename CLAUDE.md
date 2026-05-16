@@ -39,15 +39,16 @@ This is a full-stack K-pop release prediction app with three layers:
 - `requirements.txt` — Python backend dependencies
 
 ### Backend (`backend/`)
-- `model.py` — all ML logic: feature engineering, LightGBM quantile regression (p10/p50/p90), and prediction. The model trains on log-transformed inter-release intervals and uses `stable_hash_int` (SHA-256-based) for deterministic categorical encoding instead of sklearn `LabelEncoder` (avoids encode/decode mismatch across runs). Cache key prefix is `model_v4_quantiles_`.
+- `model.py` — all ML logic: feature engineering, LightGBM quantile regression (p10/p50/p90), and prediction. The model trains on log-transformed inter-release intervals and uses `stable_hash_int` (SHA-256-based) for deterministic categorical encoding instead of sklearn `LabelEncoder` (avoids encode/decode mismatch across runs). Cache key prefix is `model_v8_quantiles_`. Quantile dates are advanced past `min_prediction_dt` using a shared cycle count anchored on p50 (prevents p10/p50/p90 from collapsing to the same date for overdue groups).
 - `app.py` — FastAPI app exposing `/api/groups`, `/api/releases`, `/api/predict`, `/api/status`. Trained models are pickled to `backend/cache/` keyed by a data signature + cutoff date. The cache is invalidated automatically when CSV files change.
 - `backend/__init__.py` — empty, makes `backend` a package so `from backend.model import ...` works when running from the repo root.
-- `analysis.py` (root) — offline backtest script: trains on pre-2024 data, evaluates on 2024+ releases, prints MAE/MAPE/coverage/within-N-weeks stats broken down by release type and group.
+- `analysis.py` (root) — offline backtest script (leave-last-out): trains on full data up to today, withholds each group's most recent release, and reports MAE/coverage/within-N-weeks accuracy for all groups and the 18-group shortlist.
 
 ### Frontend (`frontend/`)
 - Next.js (Pages Router) + Tailwind CSS
 - `src/lib/api.js` — all fetch calls to the backend; `NEXT_PUBLIC_API_BASE` env var controls the backend URL (defaults to `http://localhost:8000`)
-- Page flow: `/` (landing) → `/gen` (pick generation) → `/groups` (pick group) → `/group` (show releases + prediction)
+- Page flow: `/` (group picker with typing-animation header, split into 4th/5th gen columns) → `/group?name=<group>` (release timeline + prediction card). `/gen` redirects to `/`.
+- Dark techno theme defined in `src/styles/globals.css` via CSS custom properties (`--accent-4th: #f0287a`, `--accent-5th: #22d3ee`). Gen-aware accent colors are applied throughout — cards, badges, predict button glow, and prediction card range bar all switch between pink (4th gen) and cyan (5th gen).
 
 ### Key design details
 - **Soloists inherit parent group features**: when predicting for a group, `get_solo_releases_for_group` pulls in all member solo releases as additional features, letting the model detect activity signals (e.g. members releasing solos before a group comeback).

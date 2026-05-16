@@ -17,7 +17,7 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from info import GENERATION_MAPPINGS, KPOP_GROUPS, SOLOISTS, GROUP_COMPANIES, MILITARY_SERVICE
+from info import GENERATION_MAPPINGS, KPOP_GROUPS, SOLOISTS, GROUP_COMPANIES, MILITARY_SERVICE, AWARD_SHOWS
 
 
 DEFAULT_CUTOFF = date(2024, 12, 31)
@@ -116,6 +116,21 @@ def members_in_military_at(group_key: str, as_of: pd.Timestamp) -> int:
         if enlist <= as_of <= discharge:
             count += 1
     return count
+
+
+def days_to_next_award_show(as_of: pd.Timestamp) -> int:
+    """Days from as_of until the next major K-pop award ceremony."""
+    year = as_of.year
+    candidates = []
+    for _, month, day in AWARD_SHOWS:
+        for y in (year, year + 1):
+            try:
+                dt = pd.Timestamp(y, month, day)
+            except ValueError:
+                continue
+            if dt > as_of:
+                candidates.append((dt - as_of).days)
+    return min(candidates) if candidates else 365
 
 
 def get_solo_releases_for_group(group_key: str, all_releases: Dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -279,6 +294,9 @@ def extract_features_from_group(
         day_sin = float(np.sin(2 * np.pi * day_of_year / 366.0))
         day_cos = float(np.cos(2 * np.pi * day_of_year / 366.0))
 
+        days_to_awards = days_to_next_award_show(current_date)
+        award_run_up = int(days_to_awards <= 75)
+
         feature_dict = {
             "group": group_key,
             "generation": generation,
@@ -318,6 +336,8 @@ def extract_features_from_group(
             "type_changed": type_changed,
             "track_count_log": track_count_log,
             "release_label": effective_company,
+            "days_to_awards": days_to_awards,
+            "award_run_up": award_run_up,
             "target_days": float(target_days),
         }
         features.append(feature_dict)
@@ -363,6 +383,7 @@ def train_lightgbm_quantile_models(
         "recent_solo_30d", "days_since_last_solo", "solo_frequency",
         "interval_trend_5", "last_type_encoded", "type_changed",
         "track_count_log",
+        "days_to_awards", "award_run_up",
     ]
     X = df_train[feature_cols]
     Y = df_train["target_days_log"]
@@ -541,6 +562,9 @@ def predict_next_release_lightgbm_interval(
     day_sin = float(np.sin(2 * np.pi * day_of_year / 366.0))
     day_cos = float(np.cos(2 * np.pi * day_of_year / 366.0))
 
+    days_to_awards = days_to_next_award_show(last_date)
+    award_run_up = int(days_to_awards <= 75)
+
     feature_cols = [
         "group_encoded",
         "generation",
@@ -573,6 +597,8 @@ def predict_next_release_lightgbm_interval(
         "last_type_encoded",
         "type_changed",
         "track_count_log",
+        "days_to_awards",
+        "award_run_up",
     ]
 
     interval_cv = float(std_interval_so_far / avg_interval_so_far) if avg_interval_so_far > 0 else 0.0
@@ -609,6 +635,8 @@ def predict_next_release_lightgbm_interval(
         "last_type_encoded": last_type_encoded,
         "type_changed": type_changed,
         "track_count_log": track_count_log,
+        "days_to_awards": days_to_awards,
+        "award_run_up": award_run_up,
     }
 
     X_pred = pd.DataFrame([feature_dict], columns=feature_cols)
