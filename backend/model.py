@@ -525,11 +525,12 @@ def predict_next_release_weibull_interval(
         if round_mode == "ceil":  return max(1, int(np.ceil(raw)))
         return max(1, int(np.round(raw)))
 
-    pred_days_25 = safe_days(0.25, "floor")
+    # lifelines predict_percentile operates on S(t)=P(T>t), so p=0.75 → early/optimistic, p=0.25 → late/pessimistic
+    pred_days_25 = safe_days(0.75, "floor")
     pred_days_50 = safe_days(0.50, "round")
-    pred_days_75 = safe_days(0.75, "ceil")
+    pred_days_75 = safe_days(0.25, "ceil")
 
-    # Enforce ordering before cycle-advance
+    # Enforce ordering before cycle-advance (should already hold after the swap, but guard anyway)
     pred_days_25 = min(pred_days_25, pred_days_50)
     pred_days_75 = max(pred_days_75, pred_days_50)
 
