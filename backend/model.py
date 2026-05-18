@@ -4,6 +4,7 @@ import glob
 import hashlib
 import math
 import os
+import sys
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -11,24 +12,27 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-# Import from project root
-import sys
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from info import GENERATION_MAPPINGS, KPOP_GROUPS, SOLOISTS, GROUP_COMPANIES, MILITARY_SERVICE, AWARD_SHOWS
+from info import AWARD_SHOWS, GENERATION_MAPPINGS, GROUP_COMPANIES, KPOP_GROUPS, MILITARY_SERVICE, SOLOISTS
 
+
+# ── Constants ─────────────────────────────────────────────────────────────────
 
 DEFAULT_CUTOFF = date(2024, 12, 31)
 DEFAULT_MIN_PREDICTION_DATE = date(2025, 1, 1)
+DEFAULT_INTERVAL_DAYS = 120
+
+EMA_ALPHA = 0.3
+COMEBACK_MONTHS = {1, 2, 3, 7, 8, 9}
+AWARD_RUNUP_DAYS = 75
+
+_BASE_EXCLUDED_SECONDARY = {"compilation", "live", "remix", "demo", "soundtrack"}
 
 
-def get_current_cutoff_dates():
-    """Get current date as cutoff and next day as min prediction date."""
-    today = date.today()
-    return today, today + timedelta(days=1)
-
+# ── Core utilities ─────────────────────────────────────────────────────────────
 
 def sanitize(name: str) -> str:
     import re
@@ -38,24 +42,29 @@ def sanitize(name: str) -> str:
     return name
 
 
-DEFAULT_INTERVAL_DAYS = 120
+# ── Sanitized lookup tables ────────────────────────────────────────────────────
+# CSV filenames use sanitize() so all runtime lookups must go through these.
+
+SANITIZED_GENERATION_MAPPINGS  = {sanitize(k): v for k, v in GENERATION_MAPPINGS.items()}
+SANITIZED_GROUP_COMPANIES      = {sanitize(k): v for k, v in GROUP_COMPANIES.items()}
+SANITIZED_SOLOISTS             = {sanitize(s): sanitize(p) for s, p in SOLOISTS.items()}
+SOLOIST_ORIGINAL_BY_SANITIZED  = {sanitize(s): s for s in SOLOISTS}
+SANITIZED_MILITARY_SERVICE     = {sanitize(k): v for k, v in MILITARY_SERVICE.items()}
+
+
+# ── Core utilities ─────────────────────────────────────────────────────────────
+
+def get_current_cutoff_dates() -> tuple[date, date]:
+    today = date.today()
+    return today, today + timedelta(days=1)
 
 
 def stable_hash_int(value: str, modulo: int) -> int:
-    """Deterministic hash for categorical values (consistent across runs)."""
+    """Deterministic SHA-256-based hash for categorical encoding."""
     if modulo <= 0:
         raise ValueError("modulo must be positive")
     h = hashlib.sha256(value.encode("utf-8")).hexdigest()
     return int(h[:16], 16) % modulo
-
-
-# Precompute sanitized lookup tables so that the model works consistently with
-# CSV keys (which use `sanitize()` for filenames).
-SANITIZED_GENERATION_MAPPINGS = {sanitize(k): v for k, v in GENERATION_MAPPINGS.items()}
-SANITIZED_GROUP_COMPANIES = {sanitize(k): v for k, v in GROUP_COMPANIES.items()}
-SANITIZED_SOLOISTS = {sanitize(soloist): sanitize(parent_group) for soloist, parent_group in SOLOISTS.items()}
-SOLOIST_ORIGINAL_BY_SANITIZED = {sanitize(soloist): soloist for soloist in SOLOISTS.keys()}
-SANITIZED_MILITARY_SERVICE = {sanitize(k): v for k, v in MILITARY_SERVICE.items()}
 
 
 def list_all_groups() -> List[str]:
@@ -63,41 +72,34 @@ def list_all_groups() -> List[str]:
 
 
 def get_group_from_csv_path(csv_path: str) -> str:
-    base = os.path.basename(csv_path)
-    name, _ = os.path.splitext(base)
-    return name
+    return os.path.splitext(os.path.basename(csv_path))[0]
 
 
-_BASE_EXCLUDED_SECONDARY = {"compilation", "live", "remix", "demo", "soundtrack"}
+# ── Data loading ───────────────────────────────────────────────────────────────
+
+def _get_secondary_parts(val: str) -> set:
+    return {p.strip().lower() for p in str(val).split("|") if p.strip()}
 
 
 def load_group_releases(csv_path: str, excluded_secondary: set | None = None) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
-    expected_cols = {"title", "type", "release_date"}
-    missing = expected_cols - set(df.columns)
+    missing = {"title", "type", "release_date"} - set(df.columns)
     if missing:
         raise ValueError(f"Missing columns {missing} in {csv_path}")
+
     df["release_date"] = pd.to_datetime(df["release_date"], errors="coerce")
-    df = df.dropna(subset=["release_date"]).copy()
-    df = df.sort_values(by="release_date").reset_index(drop=True)
+    df = df.dropna(subset=["release_date"]).sort_values("release_date").reset_index(drop=True)
 
     for col, default in [("secondary_types", ""), ("track_count", 0), ("label", "")]:
         if col not in df.columns:
             df[col] = default
     df["track_count"] = pd.to_numeric(df["track_count"], errors="coerce").fillna(0).astype(int)
 
-    effective_excluded = excluded_secondary if excluded_secondary is not None else _BASE_EXCLUDED_SECONDARY
-
-    def _has_excluded(val):
-        parts = {p.strip().lower() for p in str(val).split("|") if p.strip()}
-        return bool(parts & effective_excluded)
-
-    df = df[~df["secondary_types"].apply(_has_excluded)].reset_index(drop=True)
+    excluded = excluded_secondary if excluded_secondary is not None else _BASE_EXCLUDED_SECONDARY
+    df = df[~df["secondary_types"].apply(
+        lambda v: bool(_get_secondary_parts(v) & excluded)
+    )].reset_index(drop=True)
     return df
-
-
-def _get_secondary_parts(val: str) -> set:
-    return {p.strip().lower() for p in str(val).split("|") if p.strip()}
 
 
 def load_all_releases(
@@ -105,13 +107,13 @@ def load_all_releases(
     extra_excluded_secondary: set | None = None,
     exclude_predebut_mixtape: bool = False,
 ) -> Dict[str, pd.DataFrame]:
-    effective_excluded = _BASE_EXCLUDED_SECONDARY | (extra_excluded_secondary or set())
+    excluded = _BASE_EXCLUDED_SECONDARY | (extra_excluded_secondary or set())
 
     group_to_df: Dict[str, pd.DataFrame] = {}
     for csv_path in sorted(glob.glob(os.path.join(albums_dir, "*.csv"))):
         group = get_group_from_csv_path(csv_path)
         try:
-            df = load_group_releases(csv_path, excluded_secondary=effective_excluded)
+            df = load_group_releases(csv_path, excluded_secondary=excluded)
         except Exception:
             continue
         if not df.empty:
@@ -120,23 +122,27 @@ def load_all_releases(
     if not exclude_predebut_mixtape:
         return group_to_df
 
-    # Build debut date per group: earliest release not tagged mixtape/street or spokenword
+    return _filter_predebut_mixtapes(group_to_df)
+
+
+def _filter_predebut_mixtapes(group_to_df: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+    """Drop Mixtape/Street releases that predate each group's first official release."""
     _UNOFFICIAL = {"mixtape/street", "spokenword"}
+
+    # Earliest non-unofficial release per group
     debut_dates: Dict[str, pd.Timestamp] = {}
     for group, df in group_to_df.items():
         official = df[~df["secondary_types"].apply(lambda v: bool(_get_secondary_parts(v) & _UNOFFICIAL))]
         if not official.empty:
             debut_dates[group] = official["release_date"].min()
 
-    # For soloists with no official releases, fall back to parent group's debut date
-    sanitized_soloists = {sanitize(k): sanitize(v) for k, v in SOLOISTS.items()}
+    # Soloists with no official releases fall back to their parent group's debut
     for group in group_to_df:
         if group not in debut_dates:
-            parent = sanitized_soloists.get(group)
+            parent = SANITIZED_SOLOISTS.get(group)
             if parent and parent in debut_dates:
                 debut_dates[group] = debut_dates[parent]
 
-    # Drop pre-debut mixtape/street rows
     filtered: Dict[str, pd.DataFrame] = {}
     for group, df in group_to_df.items():
         debut = debut_dates.get(group)
@@ -144,18 +150,17 @@ def load_all_releases(
             filtered[group] = df
             continue
         is_mixtape = df["secondary_types"].apply(lambda v: "mixtape/street" in _get_secondary_parts(v))
-        predebut = df["release_date"] < debut
-        df = df[~(is_mixtape & predebut)].reset_index(drop=True)
+        df = df[~(is_mixtape & (df["release_date"] < debut))].reset_index(drop=True)
         if not df.empty:
             filtered[group] = df
     return filtered
 
 
+# ── Domain lookups ─────────────────────────────────────────────────────────────
+
 def members_in_military_at(group_key: str, as_of: pd.Timestamp) -> int:
-    """Count of members from group_key who were serving in the military on as_of date."""
-    records = SANITIZED_MILITARY_SERVICE.get(group_key, [])
     count = 0
-    for _member, enlist_str, discharge_str in records:
+    for _member, enlist_str, discharge_str in SANITIZED_MILITARY_SERVICE.get(group_key, []):
         enlist = pd.Timestamp(enlist_str)
         discharge = pd.Timestamp(discharge_str) if discharge_str else pd.Timestamp("2099-12-31")
         if enlist <= as_of <= discharge:
@@ -164,7 +169,6 @@ def members_in_military_at(group_key: str, as_of: pd.Timestamp) -> int:
 
 
 def days_to_next_award_show(as_of: pd.Timestamp) -> int:
-    """Days from as_of until the next major K-pop award ceremony."""
     year = as_of.year
     candidates = []
     for _, month, day in AWARD_SHOWS:
@@ -179,25 +183,131 @@ def days_to_next_award_show(as_of: pd.Timestamp) -> int:
 
 
 def get_solo_releases_for_group(group_key: str, all_releases: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """
-    Returns all solo releases whose parent group matches `group_key`.
-
-    `group_key` is expected to already be sanitized (same as CSV filenames).
-    """
-    solo_releases: List[pd.DataFrame] = []
-    for soloist_sanitized, soloist_parent_group_key in SANITIZED_SOLOISTS.items():
-        if soloist_parent_group_key != group_key:
+    """All solo releases whose parent group matches group_key (sanitized)."""
+    frames: List[pd.DataFrame] = []
+    for soloist_key, parent_key in SANITIZED_SOLOISTS.items():
+        if parent_key != group_key or soloist_key not in all_releases:
             continue
-        if soloist_sanitized not in all_releases:
-            continue
-        solo_df = all_releases[soloist_sanitized].copy()
-        solo_df["soloist"] = SOLOIST_ORIGINAL_BY_SANITIZED.get(soloist_sanitized, soloist_sanitized)
-        solo_releases.append(solo_df)
-    if not solo_releases:
+        solo_df = all_releases[soloist_key].copy()
+        solo_df["soloist"] = SOLOIST_ORIGINAL_BY_SANITIZED.get(soloist_key, soloist_key)
+        frames.append(solo_df)
+    if not frames:
         return pd.DataFrame()
-    combined = pd.concat(solo_releases, ignore_index=True)
-    combined = combined.sort_values("release_date").reset_index(drop=True)
-    return combined
+    return pd.concat(frames, ignore_index=True).sort_values("release_date").reset_index(drop=True)
+
+
+# ── Feature helpers ────────────────────────────────────────────────────────────
+
+def _compute_interval_stats(
+    intervals_before: pd.Series,
+    intervals_including: pd.Series,
+) -> dict:
+    """Interval statistics used as model features."""
+    n_before = len(intervals_before)
+    n_incl = len(intervals_including)
+
+    avg    = float(intervals_before.mean())   if n_before > 0 else float(DEFAULT_INTERVAL_DAYS)
+    median = float(intervals_before.median()) if n_before > 0 else float(DEFAULT_INTERVAL_DAYS)
+    std    = float(intervals_before.std())    if n_before > 1 else 0.0
+    cv     = std / avg if avg > 0 else 0.0
+
+    avg_last_3    = float(intervals_including.iloc[-3:].mean())   if n_incl > 0 else float(DEFAULT_INTERVAL_DAYS)
+    median_last_3 = float(intervals_including.iloc[-3:].median()) if n_incl > 0 else float(DEFAULT_INTERVAL_DAYS)
+    std_last_5    = float(intervals_including.iloc[-5:].std())    if n_incl >= 3 else 0.0
+
+    ema: Optional[float] = None
+    for v in intervals_including.tolist():
+        ema = float(v) if ema is None else EMA_ALPHA * float(v) + (1 - EMA_ALPHA) * ema
+    if ema is None:
+        ema = float(DEFAULT_INTERVAL_DAYS)
+
+    trend = 0.0
+    trend_vals = intervals_including.iloc[-5:].values
+    if len(trend_vals) >= 3:
+        slope = float(np.polyfit(range(len(trend_vals)), trend_vals, 1)[0])
+        trend = slope / max(avg, 1.0)
+
+    return {
+        "avg_interval_so_far":    avg,
+        "median_interval_so_far": median,
+        "std_interval_so_far":    std,
+        "interval_cv":            cv,
+        "ema_interval_so_far":    ema,
+        "avg_last_3_intervals":   avg_last_3,
+        "median_last_3_intervals": median_last_3,
+        "std_last_5_intervals":   std_last_5,
+        "release_acceleration":   avg_last_3 / max(avg, 1.0),
+        "interval_trend_5":       trend,
+    }
+
+
+def _compute_solo_features(
+    solo_releases: pd.DataFrame,
+    as_of: pd.Timestamp,
+    debut_date: pd.Timestamp,
+) -> dict:
+    """Solo activity features relative to as_of date."""
+    null_result = {
+        "recent_solos_6m": 0,
+        "recent_solo_30d": 0,
+        "days_since_last_solo": 9999.0,
+        "solo_frequency": 0.0,
+    }
+    if solo_releases.empty or "release_date" not in solo_releases.columns:
+        return null_result
+
+    six_months_ago  = as_of - pd.DateOffset(months=6)
+    thirty_days_ago = as_of - pd.DateOffset(days=30)
+    before = solo_releases[solo_releases["release_date"] < as_of]
+
+    recent_6m  = len(solo_releases[(solo_releases["release_date"] >= six_months_ago)  & (solo_releases["release_date"] < as_of)])
+    recent_30d = len(solo_releases[(solo_releases["release_date"] >= thirty_days_ago) & (solo_releases["release_date"] < as_of)])
+    days_since = float((as_of - before.iloc[-1]["release_date"]).days) if not before.empty else 9999.0
+    years_since_debut = (as_of - debut_date).days / 365.25
+    frequency = len(before) / max(years_since_debut, 0.1)
+
+    return {
+        "recent_solos_6m":      recent_6m,
+        "recent_solo_30d":      recent_30d,
+        "days_since_last_solo": days_since,
+        "solo_frequency":       float(frequency),
+    }
+
+
+def _compute_seasonality(release_date: pd.Timestamp) -> dict:
+    """Cyclical and categorical seasonality features."""
+    day_of_year = int(release_date.dayofyear)
+    return {
+        "day_sin":        float(np.sin(2 * np.pi * day_of_year / 366.0)),
+        "day_cos":        float(np.cos(2 * np.pi * day_of_year / 366.0)),
+        "comeback_season": int(release_date.month in COMEBACK_MONTHS),
+    }
+
+
+def _get_effective_company(label_str, group_company: Optional[str]) -> str:
+    label = str(label_str).strip()
+    if label and label not in ("", "nan"):
+        return label
+    return group_company if group_company is not None else "Unknown"
+
+
+# ── Training pipeline ──────────────────────────────────────────────────────────
+
+FEATURE_COLS = [
+    "group_encoded", "generation", "type_encoded", "company_encoded",
+    "release_number", "days_since_debut", "days_since_previous",
+    "avg_interval_so_far", "median_interval_so_far", "std_interval_so_far",
+    "interval_cv", "ema_interval_so_far",
+    "avg_last_3_intervals", "median_last_3_intervals", "std_last_5_intervals",
+    "releases_this_year", "releases_last_year",
+    "day_sin", "day_cos", "comeback_season",
+    "days_since_previous_norm", "release_acceleration",
+    "members_in_military",
+    "recent_solos_6m", "recent_solo_30d", "days_since_last_solo", "solo_frequency",
+    "interval_trend_5", "last_type_encoded", "type_changed",
+    "track_count_log",
+    "days_to_awards", "award_run_up",
+]
 
 
 def extract_features_from_group(
@@ -206,186 +316,64 @@ def extract_features_from_group(
     cutoff: date,
     all_releases: Dict[str, pd.DataFrame],
 ) -> List[Dict]:
-    """
-    Builds one training row per observed release, predicting the next interval.
-
-    `group_key` is expected to already be sanitized to match CSV filenames.
-    """
-    features: List[Dict] = []
-
+    """One training row per observed release, predicting the gap to the next one."""
     parent_group_key = SANITIZED_SOLOISTS.get(group_key, group_key)
     generation = SANITIZED_GENERATION_MAPPINGS.get(parent_group_key, 0)
-    company = SANITIZED_GROUP_COMPANIES.get(parent_group_key, None)
+    company = SANITIZED_GROUP_COMPANIES.get(parent_group_key)
+    solo_releases = get_solo_releases_for_group(parent_group_key, all_releases)
 
     cutoff_dt = pd.Timestamp(cutoff)
     df_sorted = df[df["release_date"] <= cutoff_dt].sort_values("release_date")
     if len(df_sorted) < 2:
-        return features
+        return []
 
-    solo_releases = get_solo_releases_for_group(parent_group_key, all_releases)
+    debut_date = df_sorted.iloc[0]["release_date"]
+    features: List[Dict] = []
 
-    for i in range(1, len(df_sorted)):
-        current_release = df_sorted.iloc[i]
-        previous_releases = df_sorted.iloc[:i]
+    for i in range(1, len(df_sorted) - 1):
+        current = df_sorted.iloc[i]
+        prev_releases = df_sorted.iloc[:i]
+        current_date = current["release_date"]
+        target_days = (df_sorted.iloc[i + 1]["release_date"] - current_date).days
 
-        if i < len(df_sorted) - 1:
-            next_release = df_sorted.iloc[i + 1]
-            target_days = (next_release["release_date"] - current_release["release_date"]).days
-        else:
-            continue
+        intervals_before    = prev_releases["release_date"].diff().dt.days.dropna()
+        intervals_including = df_sorted.iloc[:i + 1]["release_date"].diff().dt.days.dropna()
+        days_since_previous = (current_date - prev_releases.iloc[-1]["release_date"]).days
 
-        current_date = current_release["release_date"]
+        stats  = _compute_interval_stats(intervals_before, intervals_including)
+        solos  = _compute_solo_features(solo_releases, current_date, debut_date)
+        season = _compute_seasonality(current_date)
 
-        intervals_before_current = previous_releases["release_date"].diff().dt.days.dropna()
-        history_including_current = df_sorted.iloc[: i + 1]
-        intervals_including_current = history_including_current["release_date"].diff().dt.days.dropna()
-
-        days_since_previous = (current_date - previous_releases.iloc[-1]["release_date"]).days
-
-        avg_interval_so_far = intervals_before_current.mean() if len(intervals_before_current) > 0 else DEFAULT_INTERVAL_DAYS
-        median_interval_so_far = (
-            intervals_before_current.median() if len(intervals_before_current) > 0 else DEFAULT_INTERVAL_DAYS
+        effective_company = _get_effective_company(
+            current.get("label", "") if "label" in current.index else "",
+            company,
         )
-        std_interval_so_far = intervals_before_current.std() if len(intervals_before_current) > 1 else 0
-        min_interval_so_far = intervals_before_current.min() if len(intervals_before_current) > 0 else DEFAULT_INTERVAL_DAYS
-        max_interval_so_far = intervals_before_current.max() if len(intervals_before_current) > 0 else DEFAULT_INTERVAL_DAYS
-
-        # Rolling interval features (last few observed intervals).
-        last_interval_1 = days_since_previous
-        last_interval_2 = float(intervals_including_current.iloc[-2]) if len(intervals_including_current) >= 2 else DEFAULT_INTERVAL_DAYS
-        last_interval_3 = float(intervals_including_current.iloc[-3]) if len(intervals_including_current) >= 3 else DEFAULT_INTERVAL_DAYS
-        avg_last_3_intervals = (
-            float(intervals_including_current.iloc[-3:].mean()) if len(intervals_including_current) > 0 else DEFAULT_INTERVAL_DAYS
-        )
-        median_last_3_intervals = (
-            float(intervals_including_current.iloc[-3:].median()) if len(intervals_including_current) > 0 else DEFAULT_INTERVAL_DAYS
-        )
-        std_last_5_intervals = (
-            float(intervals_including_current.iloc[-5:].std()) if len(intervals_including_current) >= 3 else 0
-        )
-
-        ema_alpha = 0.3
-        ema_interval = None
-        for v in intervals_including_current.tolist():
-            if ema_interval is None:
-                ema_interval = float(v)
-            else:
-                ema_interval = float(ema_alpha * v + (1 - ema_alpha) * ema_interval)
-        if ema_interval is None:
-            ema_interval = float(DEFAULT_INTERVAL_DAYS)
-
-        # Solo-related features (based on parent group).
-        recent_solos_6m = 0
-        recent_solos_1y = 0
-        recent_solos_2y = 0
-        recent_solo_30d = 0
-        days_since_last_solo = 9999
-        solo_frequency = 0
-        if not solo_releases.empty and "release_date" in solo_releases.columns:
-            six_months_ago = current_date - pd.DateOffset(months=6)
-            one_year_ago = current_date - pd.DateOffset(months=12)
-            two_years_ago = current_date - pd.DateOffset(months=24)
-            thirty_days_ago = current_date - pd.DateOffset(days=30)
-            recent_solos_6m = len(
-                solo_releases[
-                    (solo_releases["release_date"] >= six_months_ago)
-                    & (solo_releases["release_date"] < current_date)
-                ]
-            )
-            recent_solos_1y = len(
-                solo_releases[
-                    (solo_releases["release_date"] >= one_year_ago)
-                    & (solo_releases["release_date"] < current_date)
-                ]
-            )
-            recent_solos_2y = len(
-                solo_releases[
-                    (solo_releases["release_date"] >= two_years_ago)
-                    & (solo_releases["release_date"] < current_date)
-                ]
-            )
-            previous_solos = solo_releases[solo_releases["release_date"] < current_date]
-            days_since_last_solo = (
-                (current_date - previous_solos.iloc[-1]["release_date"]).days if not previous_solos.empty else 9999
-            )
-            total_solos_before = len(previous_solos)
-            years_since_debut = (current_date - df_sorted.iloc[0]["release_date"]).days / 365.25
-            solo_frequency = total_solos_before / max(years_since_debut, 0.1)
-            recent_solo_30d = len(
-                solo_releases[
-                    (solo_releases["release_date"] >= thirty_days_ago)
-                    & (solo_releases["release_date"] < current_date)
-                ]
-            )
-
-        intervals_for_trend = intervals_including_current.iloc[-5:].values
-        if len(intervals_for_trend) >= 3:
-            slope = float(np.polyfit(range(len(intervals_for_trend)), intervals_for_trend, 1)[0])
-            interval_trend_5 = slope / max(float(avg_interval_so_far), 1.0)
-        else:
-            interval_trend_5 = 0.0
-
-        prev_release = previous_releases.iloc[-1]
-        last_type_encoded = stable_hash_int(str(prev_release["type"]), 10)
-        type_changed = int(str(current_release["type"]) != str(prev_release["type"]))
-
-        track_count_val = int(current_release["track_count"]) if "track_count" in current_release.index else 0
-        track_count_log = float(np.log1p(track_count_val))
-
-        release_label = str(current_release["label"]).strip() if "label" in current_release.index and str(current_release["label"]).strip() not in ("", "nan") else None
-        effective_company = release_label if release_label else (company if company is not None else "Unknown")
-
-        day_of_year = int(current_date.dayofyear)
-        day_sin = float(np.sin(2 * np.pi * day_of_year / 366.0))
-        day_cos = float(np.cos(2 * np.pi * day_of_year / 366.0))
-
         days_to_awards = days_to_next_award_show(current_date)
-        award_run_up = int(days_to_awards <= 75)
 
-        feature_dict = {
-            "group": group_key,
-            "generation": generation,
-            "company": company,
-            "release_type": current_release["type"],
+        features.append({
+            "group":          group_key,
+            "generation":     generation,
+            "company":        company,
+            "release_type":   current["type"],
             "release_number": i,
-            # The "as-of" date for this row's features (used for time-based evaluation splits).
-            "as_of_date": pd.Timestamp(current_date),
-            "days_since_debut": (current_date - df_sorted.iloc[0]["release_date"]).days,
-            "days_since_previous": days_since_previous,
-            "avg_interval_so_far": float(avg_interval_so_far),
-            "median_interval_so_far": float(median_interval_so_far),
-            "std_interval_so_far": float(std_interval_so_far),
-            "interval_cv": float(std_interval_so_far / avg_interval_so_far) if avg_interval_so_far > 0 else 0.0,
-            "ema_interval_so_far": float(ema_interval),
-            "avg_last_3_intervals": float(avg_last_3_intervals),
-            "median_last_3_intervals": float(median_last_3_intervals),
-            "std_last_5_intervals": float(std_last_5_intervals),
-            "releases_this_year": len(
-                previous_releases[previous_releases["release_date"].dt.year == current_date.year]
-            ),
-            "releases_last_year": len(
-                previous_releases[previous_releases["release_date"].dt.year == current_date.year - 1]
-            ),
-            "day_sin": day_sin,
-            "day_cos": day_cos,
-            "comeback_season": int(int(current_date.month) in {1, 2, 3, 7, 8, 9}),
-            "days_since_previous_norm": float(days_since_previous) / max(float(avg_interval_so_far), 1.0),
-            "release_acceleration": float(avg_last_3_intervals) / max(float(avg_interval_so_far), 1.0),
+            "as_of_date":     pd.Timestamp(current_date),
+            "days_since_debut":        (current_date - debut_date).days,
+            "days_since_previous":     float(days_since_previous),
+            "days_since_previous_norm": float(days_since_previous) / max(stats["avg_interval_so_far"], 1.0),
+            **stats,
+            **solos,
+            **season,
+            "releases_this_year":  len(prev_releases[prev_releases["release_date"].dt.year == current_date.year]),
+            "releases_last_year":  len(prev_releases[prev_releases["release_date"].dt.year == current_date.year - 1]),
             "members_in_military": members_in_military_at(parent_group_key, current_date),
-            "recent_solos_6m": int(recent_solos_6m),
-            "recent_solo_30d": int(recent_solo_30d),
-            "days_since_last_solo": float(days_since_last_solo),
-            "solo_frequency": float(solo_frequency),
-            "interval_trend_5": interval_trend_5,
-            "last_type_encoded": last_type_encoded,
-            "type_changed": type_changed,
-            "track_count_log": track_count_log,
-            "release_label": effective_company,
-            "days_to_awards": days_to_awards,
-            "award_run_up": award_run_up,
-            "target_days": float(target_days),
-        }
-        features.append(feature_dict)
+            "last_type_encoded":   stable_hash_int(str(prev_releases.iloc[-1]["type"]), 10),
+            "type_changed":        int(str(current["type"]) != str(prev_releases.iloc[-1]["type"])),
+            "track_count_log":     float(np.log1p(int(current.get("track_count", 0)))),
+            "release_label":       effective_company,
+            "days_to_awards":      days_to_awards,
+            "award_run_up":        int(days_to_awards <= AWARD_RUNUP_DAYS),
+            "target_days":         float(target_days),
+        })
 
     return features
 
@@ -393,18 +381,13 @@ def extract_features_from_group(
 def prepare_training_data(data_by_group: Dict[str, pd.DataFrame], cutoff: date) -> pd.DataFrame:
     all_features: List[Dict] = []
     for group, df in data_by_group.items():
-        features = extract_features_from_group(df, group, cutoff, data_by_group)
-        all_features.extend(features)
+        all_features.extend(extract_features_from_group(df, group, cutoff, data_by_group))
     if not all_features:
         return pd.DataFrame()
     df_features = pd.DataFrame(all_features)
-    # Stable categorical encodings so training and inference match.
-    df_features["group_encoded"] = df_features["group"].apply(lambda v: stable_hash_int(str(v), 1000))
-    df_features["type_encoded"] = df_features["release_type"].apply(lambda v: stable_hash_int(str(v), 10))
-    df_features["company_encoded"] = (
-        df_features["release_label"].fillna("Unknown").apply(lambda v: stable_hash_int(str(v), 100))
-    )
-    # Train on log-scale to reduce skew from very long/short intervals.
+    df_features["group_encoded"]   = df_features["group"].apply(lambda v: stable_hash_int(str(v), 1000))
+    df_features["type_encoded"]    = df_features["release_type"].apply(lambda v: stable_hash_int(str(v), 10))
+    df_features["company_encoded"] = df_features["release_label"].fillna("Unknown").apply(lambda v: stable_hash_int(str(v), 100))
     df_features["target_days_log"] = np.log1p(df_features["target_days"])
     return df_features
 
@@ -413,27 +396,10 @@ def train_lightgbm_quantile_models(
     df_train: pd.DataFrame,
     quantiles: List[float] = [0.25, 0.5, 0.75],
 ) -> Dict[float, lgb.LGBMRegressor]:
-    feature_cols = [
-        "group_encoded", "generation", "type_encoded", "company_encoded",
-        "release_number", "days_since_debut", "days_since_previous",
-        "avg_interval_so_far", "median_interval_so_far", "std_interval_so_far",
-        "interval_cv",
-        "ema_interval_so_far", "avg_last_3_intervals", "median_last_3_intervals",
-        "std_last_5_intervals",
-        "releases_this_year", "releases_last_year",
-        "day_sin", "day_cos",
-        "comeback_season", "days_since_previous_norm", "release_acceleration",
-        "members_in_military",
-        "recent_solos_6m",
-        "recent_solo_30d", "days_since_last_solo", "solo_frequency",
-        "interval_trend_5", "last_type_encoded", "type_changed",
-        "track_count_log",
-        "days_to_awards", "award_run_up",
-    ]
-    X = df_train[feature_cols]
+    X = df_train[FEATURE_COLS]
     Y = df_train["target_days_log"]
 
-    # Temporal split for early stopping: latest 15% of the date range → val set.
+    # Temporal split: latest 15% of date range → validation set for early stopping
     dates = pd.to_datetime(df_train["as_of_date"])
     date_min, date_max = dates.min(), dates.max()
     val_threshold = date_min + (date_max - date_min) * 0.85
@@ -441,7 +407,7 @@ def train_lightgbm_quantile_models(
     X_tr, Y_tr = X[~val_mask], Y[~val_mask]
     X_val, Y_val = X[val_mask], Y[val_mask]
 
-    params_base = {
+    base_params = {
         "objective": "quantile",
         "metric": "mae",
         "boosting_type": "gbdt",
@@ -460,22 +426,21 @@ def train_lightgbm_quantile_models(
 
     models: Dict[float, lgb.LGBMRegressor] = {}
     for q in quantiles:
-        params = {**params_base, "alpha": q}
-        # Phase 1: find best n_estimators via early stopping on val set.
+        params = {**base_params, "alpha": q}
+        # Phase 1: find best n_estimators via early stopping
         probe = lgb.LGBMRegressor(**params)
-        probe.fit(
-            X_tr, Y_tr,
-            eval_set=[(X_val, Y_val)],
-            callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(-1)],
-        )
+        probe.fit(X_tr, Y_tr, eval_set=[(X_val, Y_val)],
+                  callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(-1)])
         best_n = probe.best_iteration_ or params["n_estimators"]
-        # Phase 2: refit on full data with the found n_estimators.
+        # Phase 2: refit on full data
         final = lgb.LGBMRegressor(**{**params, "n_estimators": best_n})
         final.fit(X, Y)
         models[q] = final
 
     return models
 
+
+# ── Prediction ─────────────────────────────────────────────────────────────────
 
 def predict_next_release_lightgbm_interval(
     df_group: pd.DataFrame,
@@ -485,279 +450,112 @@ def predict_next_release_lightgbm_interval(
     min_prediction_date: date,
     all_releases: Dict[str, pd.DataFrame],
 ) -> Optional[Dict[str, object]]:
-    """
-    Predicts the *next release date interval* using quantile regression.
-
-    Returns a dict with low/median/high dates (and their implied day counts).
-    """
+    """Predict the next release window using quantile regression (p25/p50/p75)."""
     cutoff_dt = pd.Timestamp(cutoff)
-    min_prediction_dt = pd.Timestamp(min_prediction_date)
-
     df_cut = df_group[df_group["release_date"] <= cutoff_dt].sort_values("release_date").reset_index(drop=True)
     if len(df_cut) < 2:
         return None
 
-    last_release = df_cut.iloc[-1]
-    last_date = last_release["release_date"]
-    previous_releases = df_cut.iloc[:-1]
+    last_release    = df_cut.iloc[-1]
+    last_date       = last_release["release_date"]
+    prev_releases   = df_cut.iloc[:-1]
+    debut_date      = df_cut.iloc[0]["release_date"]
 
     parent_group_key = SANITIZED_SOLOISTS.get(group_key, group_key)
-    generation = SANITIZED_GENERATION_MAPPINGS.get(parent_group_key, 0)
-    company = SANITIZED_GROUP_COMPANIES.get(parent_group_key, None)
+    generation       = SANITIZED_GENERATION_MAPPINGS.get(parent_group_key, 0)
+    company          = SANITIZED_GROUP_COMPANIES.get(parent_group_key)
+    solo_releases    = get_solo_releases_for_group(parent_group_key, all_releases)
 
-    solo_releases = get_solo_releases_for_group(parent_group_key, all_releases)
+    intervals_before    = prev_releases["release_date"].diff().dt.days.dropna()
+    intervals_including = df_cut["release_date"].diff().dt.days.dropna()
+    days_since_previous = (last_date - prev_releases.iloc[-1]["release_date"]).days
 
-    recent_solos_6m = 0
-    recent_solos_1y = 0
-    recent_solos_2y = 0
-    recent_solo_30d = 0
-    days_since_last_solo = 9999
-    solo_frequency = 0
-    if not solo_releases.empty and "release_date" in solo_releases.columns:
-        six_months_ago = last_date - pd.DateOffset(months=6)
-        one_year_ago = last_date - pd.DateOffset(months=12)
-        two_years_ago = last_date - pd.DateOffset(months=24)
-        thirty_days_ago = last_date - pd.DateOffset(days=30)
+    stats  = _compute_interval_stats(intervals_before, intervals_including)
+    solos  = _compute_solo_features(solo_releases, last_date, debut_date)
+    season = _compute_seasonality(last_date)
 
-        recent_solos_6m = len(
-            solo_releases[
-                (solo_releases["release_date"] >= six_months_ago) & (solo_releases["release_date"] < last_date)
-            ]
-        )
-        recent_solos_1y = len(
-            solo_releases[
-                (solo_releases["release_date"] >= one_year_ago) & (solo_releases["release_date"] < last_date)
-            ]
-        )
-        recent_solos_2y = len(
-            solo_releases[
-                (solo_releases["release_date"] >= two_years_ago) & (solo_releases["release_date"] < last_date)
-            ]
-        )
-        recent_solo_30d = len(
-            solo_releases[
-                (solo_releases["release_date"] >= thirty_days_ago) & (solo_releases["release_date"] < last_date)
-            ]
-        )
-
-        previous_solos = solo_releases[solo_releases["release_date"] < last_date]
-        days_since_last_solo = (
-            (last_date - previous_solos.iloc[-1]["release_date"]).days if not previous_solos.empty else 9999
-        )
-        total_solos_before = len(previous_solos)
-        years_since_debut = (last_date - df_cut.iloc[0]["release_date"]).days / 365.25
-        solo_frequency = total_solos_before / max(years_since_debut, 0.1)
-
-    intervals_before_current = previous_releases["release_date"].diff().dt.days.dropna()
-    intervals_including_current = df_cut["release_date"].diff().dt.days.dropna()
-
-    days_since_previous = (last_date - previous_releases.iloc[-1]["release_date"]).days
-
-    avg_interval_so_far = intervals_before_current.mean() if len(intervals_before_current) > 0 else DEFAULT_INTERVAL_DAYS
-    median_interval_so_far = (
-        intervals_before_current.median() if len(intervals_before_current) > 0 else DEFAULT_INTERVAL_DAYS
+    effective_company = _get_effective_company(
+        last_release.get("label", "") if "label" in last_release.index else "",
+        company,
     )
-    std_interval_so_far = intervals_before_current.std() if len(intervals_before_current) > 1 else 0
-    min_interval_so_far = intervals_before_current.min() if len(intervals_before_current) > 0 else DEFAULT_INTERVAL_DAYS
-    max_interval_so_far = intervals_before_current.max() if len(intervals_before_current) > 0 else DEFAULT_INTERVAL_DAYS
-
-    avg_last_3_intervals = (
-        float(intervals_including_current.iloc[-3:].mean()) if len(intervals_including_current) > 0 else DEFAULT_INTERVAL_DAYS
-    )
-    median_last_3_intervals = (
-        float(intervals_including_current.iloc[-3:].median()) if len(intervals_including_current) > 0 else DEFAULT_INTERVAL_DAYS
-    )
-    std_last_5_intervals = (
-        float(intervals_including_current.iloc[-5:].std()) if len(intervals_including_current) >= 3 else 0
-    )
-    last_interval_2 = float(intervals_including_current.iloc[-2]) if len(intervals_including_current) >= 2 else DEFAULT_INTERVAL_DAYS
-    last_interval_3 = float(intervals_including_current.iloc[-3]) if len(intervals_including_current) >= 3 else DEFAULT_INTERVAL_DAYS
-
-    ema_alpha = 0.3
-    ema_interval = None
-    for v in intervals_including_current.tolist():
-        if ema_interval is None:
-            ema_interval = float(v)
-        else:
-            ema_interval = float(ema_alpha * v + (1 - ema_alpha) * ema_interval)
-    if ema_interval is None:
-        ema_interval = float(DEFAULT_INTERVAL_DAYS)
-
-    releases_this_year = len(previous_releases[previous_releases["release_date"].dt.year == last_date.year])
-    releases_last_year = len(previous_releases[previous_releases["release_date"].dt.year == last_date.year - 1])
-
-    intervals_for_trend = intervals_including_current.iloc[-5:].values
-    if len(intervals_for_trend) >= 3:
-        slope = float(np.polyfit(range(len(intervals_for_trend)), intervals_for_trend, 1)[0])
-        interval_trend_5 = slope / max(float(avg_interval_so_far), 1.0)
-    else:
-        interval_trend_5 = 0.0
-
-    second_last_release = df_cut.iloc[-2] if len(df_cut) >= 2 else last_release
-    last_type_encoded = stable_hash_int(str(second_last_release["type"]), 10)
-    type_changed = int(str(last_release["type"]) != str(second_last_release["type"]))
-
-    track_count_val = int(last_release["track_count"]) if "track_count" in last_release.index else 0
-    track_count_log = float(np.log1p(track_count_val))
-
-    release_label = str(last_release["label"]).strip() if "label" in last_release.index and str(last_release["label"]).strip() not in ("", "nan") else None
-    effective_company = release_label if release_label else (company if company is not None else "Unknown")
-
-    day_of_year = int(last_date.dayofyear)
-    day_sin = float(np.sin(2 * np.pi * day_of_year / 366.0))
-    day_cos = float(np.cos(2 * np.pi * day_of_year / 366.0))
-
+    second_last = df_cut.iloc[-2]
     days_to_awards = days_to_next_award_show(last_date)
-    award_run_up = int(days_to_awards <= 75)
-
-    feature_cols = [
-        "group_encoded",
-        "generation",
-        "type_encoded",
-        "company_encoded",
-        "release_number",
-        "days_since_debut",
-        "days_since_previous",
-        "avg_interval_so_far",
-        "median_interval_so_far",
-        "std_interval_so_far",
-        "interval_cv",
-        "ema_interval_so_far",
-        "avg_last_3_intervals",
-        "median_last_3_intervals",
-        "std_last_5_intervals",
-        "releases_this_year",
-        "releases_last_year",
-        "day_sin",
-        "day_cos",
-        "comeback_season",
-        "days_since_previous_norm",
-        "release_acceleration",
-        "members_in_military",
-        "recent_solos_6m",
-        "recent_solo_30d",
-        "days_since_last_solo",
-        "solo_frequency",
-        "interval_trend_5",
-        "last_type_encoded",
-        "type_changed",
-        "track_count_log",
-        "days_to_awards",
-        "award_run_up",
-    ]
-
-    interval_cv = float(std_interval_so_far / avg_interval_so_far) if avg_interval_so_far > 0 else 0.0
 
     feature_dict = {
-        "group_encoded": stable_hash_int(str(group_key), 1000),
-        "generation": generation,
-        "type_encoded": stable_hash_int(str(last_release["type"]), 10),
-        "company_encoded": stable_hash_int(effective_company, 100),
-        "release_number": int(len(df_cut) - 1),
-        "days_since_debut": (last_date - df_cut.iloc[0]["release_date"]).days,
-        "days_since_previous": float(days_since_previous),
-        "avg_interval_so_far": float(avg_interval_so_far),
-        "median_interval_so_far": float(median_interval_so_far),
-        "std_interval_so_far": float(std_interval_so_far),
-        "interval_cv": interval_cv,
-        "ema_interval_so_far": float(ema_interval),
-        "avg_last_3_intervals": float(avg_last_3_intervals),
-        "median_last_3_intervals": float(median_last_3_intervals),
-        "std_last_5_intervals": float(std_last_5_intervals),
-        "releases_this_year": float(releases_this_year),
-        "releases_last_year": float(releases_last_year),
-        "day_sin": float(day_sin),
-        "day_cos": float(day_cos),
-        "comeback_season": int(int(last_date.month) in {1, 2, 3, 7, 8, 9}),
-        "days_since_previous_norm": float(days_since_previous) / max(float(avg_interval_so_far), 1.0),
-        "release_acceleration": float(avg_last_3_intervals) / max(float(avg_interval_so_far), 1.0),
+        "group_encoded":    stable_hash_int(str(group_key), 1000),
+        "generation":       generation,
+        "type_encoded":     stable_hash_int(str(last_release["type"]), 10),
+        "company_encoded":  stable_hash_int(effective_company, 100),
+        "release_number":   int(len(df_cut) - 1),
+        "days_since_debut": (last_date - debut_date).days,
+        "days_since_previous":      float(days_since_previous),
+        "days_since_previous_norm": float(days_since_previous) / max(stats["avg_interval_so_far"], 1.0),
+        **stats,
+        **solos,
+        **season,
+        "releases_this_year":  len(prev_releases[prev_releases["release_date"].dt.year == last_date.year]),
+        "releases_last_year":  len(prev_releases[prev_releases["release_date"].dt.year == last_date.year - 1]),
         "members_in_military": members_in_military_at(parent_group_key, last_date),
-        "recent_solos_6m": float(recent_solos_6m),
-        "recent_solo_30d": float(recent_solo_30d),
-        "days_since_last_solo": float(days_since_last_solo),
-        "solo_frequency": float(solo_frequency),
-        "interval_trend_5": interval_trend_5,
-        "last_type_encoded": last_type_encoded,
-        "type_changed": type_changed,
-        "track_count_log": track_count_log,
-        "days_to_awards": days_to_awards,
-        "award_run_up": award_run_up,
+        "last_type_encoded":   stable_hash_int(str(second_last["type"]), 10),
+        "type_changed":        int(str(last_release["type"]) != str(second_last["type"])),
+        "track_count_log":     float(np.log1p(int(last_release.get("track_count", 0)))),
+        "days_to_awards":      days_to_awards,
+        "award_run_up":        int(days_to_awards <= AWARD_RUNUP_DAYS),
     }
 
-    X_pred = pd.DataFrame([feature_dict], columns=feature_cols)
+    X_pred = pd.DataFrame([feature_dict], columns=FEATURE_COLS)
 
     def pred_days_from_log(pred_log: float, round_mode: str) -> int:
-        pred_days_float = float(np.expm1(pred_log))
-        pred_days_float = max(0.0, pred_days_float)
-        if round_mode == "floor":
-            return max(1, int(np.floor(pred_days_float)))
-        if round_mode == "ceil":
-            return max(1, int(np.ceil(pred_days_float)))
-        return max(1, int(np.round(pred_days_float)))
+        raw = max(0.0, float(np.expm1(pred_log)))
+        if round_mode == "floor": return max(1, int(np.floor(raw)))
+        if round_mode == "ceil":  return max(1, int(np.ceil(raw)))
+        return max(1, int(np.round(raw)))
 
-    quantiles = sorted(models.keys())
-    q25 = 0.25 if 0.25 in models else quantiles[0]
-    q50 = 0.5 if 0.5 in models else min(quantiles, key=lambda x: abs(x - 0.5))
-    q75 = 0.75 if 0.75 in models else quantiles[-1]
+    quantile_keys = sorted(models.keys())
+    q25 = 0.25 if 0.25 in models else quantile_keys[0]
+    q50 = 0.5  if 0.5  in models else min(quantile_keys, key=lambda x: abs(x - 0.5))
+    q75 = 0.75 if 0.75 in models else quantile_keys[-1]
 
-    pred_log_25 = float(models[q25].predict(X_pred)[0])
-    pred_log_50 = float(models[q50].predict(X_pred)[0])
-    pred_log_75 = float(models[q75].predict(X_pred)[0])
+    pred_days_25 = pred_days_from_log(float(models[q25].predict(X_pred)[0]), "floor")
+    pred_days_50 = pred_days_from_log(float(models[q50].predict(X_pred)[0]), "round")
+    pred_days_75 = pred_days_from_log(float(models[q75].predict(X_pred)[0]), "ceil")
 
-    pred_days_25 = pred_days_from_log(pred_log_25, "floor")
-    pred_days_50 = pred_days_from_log(pred_log_50, "round")
-    pred_days_75 = pred_days_from_log(pred_log_75, "ceil")
-
-    # Enforce ordering on the implied intervals.
+    # Enforce ordering
     pred_days_25 = min(pred_days_25, pred_days_50)
     pred_days_75 = max(pred_days_75, pred_days_50)
 
-    pred_date_25_raw = last_date + timedelta(days=pred_days_25)
-    pred_date_50_raw = last_date + timedelta(days=pred_days_50)
-    pred_date_75_raw = last_date + timedelta(days=pred_days_75)
+    pred_date_25 = last_date + timedelta(days=pred_days_25)
+    pred_date_50 = last_date + timedelta(days=pred_days_50)
+    pred_date_75 = last_date + timedelta(days=pred_days_75)
 
-    # Advance all three quantiles by the same number of p50-cycles so they clear
-    # min_prediction_dt. Using a shared cycle count (anchored on p50) prevents the
-    # independent-loop approach from landing two quantiles on the same date.
-    if pred_date_50_raw < min_prediction_dt:
-        cycles = math.ceil((min_prediction_dt - pred_date_50_raw).days / pred_days_50)
-    else:
-        cycles = 0
+    # Advance all three by the same p50-cycle count so they clear min_prediction_date
+    min_pred_dt = pd.Timestamp(min_prediction_date)
+    cycles = math.ceil((min_pred_dt - pred_date_50).days / pred_days_50) if pred_date_50 < min_pred_dt else 0
+    pred_date_25 = max(pred_date_25 + timedelta(days=cycles * pred_days_25), min_pred_dt)
+    pred_date_50 = pred_date_50 + timedelta(days=cycles * pred_days_50)
+    pred_date_75 = pred_date_75 + timedelta(days=cycles * pred_days_75)
 
-    pred_date_25 = pred_date_25_raw + timedelta(days=cycles * pred_days_25)
-    pred_date_50 = pred_date_50_raw + timedelta(days=cycles * pred_days_50)
-    pred_date_75 = pred_date_75_raw + timedelta(days=cycles * pred_days_75)
-
-    # p25 may still be before min_prediction_dt when pred_days_25 << pred_days_50; clamp it.
-    pred_date_25 = max(pred_date_25, min_prediction_dt)
-
-    # Single authoritative sort: keep (date, days) pairs together so both fields are
-    # consistent regardless of quantile model inversion, cycling edge cases, or the
-    # min_prediction_dt clamp shifting p25's date independently of its day count.
+    # Sort (date, days) pairs together to keep them consistent
     pairs = sorted(
-        [
-            (pred_date_25, pred_days_25),
-            (pred_date_50, pred_days_50),
-            (pred_date_75, pred_days_75),
-        ],
+        [(pred_date_25, pred_days_25), (pred_date_50, pred_days_50), (pred_date_75, pred_days_75)],
         key=lambda x: x[0],
     )
-    pred_date_low,  pred_days_low  = pairs[0]
-    pred_date_med,  pred_days_med  = pairs[1]
-    pred_date_high, pred_days_high = pairs[2]
+    (pred_date_low, pred_days_low), (pred_date_med, pred_days_med), (pred_date_high, pred_days_high) = pairs
 
     return {
-        "pred_date_low": pred_date_low,
-        "pred_date_med": pred_date_med,
+        "pred_date_low":  pred_date_low,
+        "pred_date_med":  pred_date_med,
         "pred_date_high": pred_date_high,
-        "pred_days_low": pred_days_low,
-        "pred_days_med": pred_days_med,
+        "pred_days_low":  pred_days_low,
+        "pred_days_med":  pred_days_med,
         "pred_days_high": pred_days_high,
     }
 
 
+# ── Cache utilities ────────────────────────────────────────────────────────────
+
 def compute_data_signature(albums_dir: str) -> str:
-    """Create a signature based on CSV filenames and mtimes to key the cache."""
+    """SHA-256 hash of CSV filenames + mtimes, used to key the model cache."""
     hasher = hashlib.sha256()
     for csv_path in sorted(glob.glob(os.path.join(albums_dir, "*.csv"))):
         try:
@@ -771,15 +569,15 @@ def compute_data_signature(albums_dir: str) -> str:
 
 
 def load_group_error_stats(group_name: str) -> Optional[Dict[str, float]]:
-    """Load simple historical error stats from versions/*/predictions.csv if available.
-
-    Returns a dict like {mae_days: float, mape_pct: float} aggregated across versions.
-    """
+    """Load historical MAE/MAPE from versions/*/predictions.csv if available."""
+    versions_dir = os.path.join(ROOT_DIR, "versions")
+    if not os.path.exists(versions_dir):
+        return None
     version_dirs = [
-        os.path.join(ROOT_DIR, "versions", d)
-        for d in os.listdir(os.path.join(ROOT_DIR, "versions"))
-        if os.path.isdir(os.path.join(ROOT_DIR, "versions", d))
-    ] if os.path.exists(os.path.join(ROOT_DIR, "versions")) else []
+        os.path.join(versions_dir, d)
+        for d in os.listdir(versions_dir)
+        if os.path.isdir(os.path.join(versions_dir, d))
+    ]
     maes: List[float] = []
     mapes: List[float] = []
     for vdir in version_dirs:
@@ -790,15 +588,15 @@ def load_group_error_stats(group_name: str) -> Optional[Dict[str, float]]:
             df = pd.read_csv(csv_path)
         except Exception:
             continue
-        if 'group' not in df.columns:
+        if "group" not in df.columns:
             continue
-        sub = df[df['group'] == group_name]
+        sub = df[df["group"] == group_name]
         if sub.empty:
             continue
-        if 'error_days' in sub.columns and sub['error_days'].notna().any():
-            maes.extend(sub['error_days'].dropna().astype(float).tolist())
-        if 'error_pct' in sub.columns and sub['error_pct'].notna().any():
-            mapes.extend(sub['error_pct'].dropna().astype(float).tolist())
+        if "error_days" in sub.columns:
+            maes.extend(sub["error_days"].dropna().astype(float).tolist())
+        if "error_pct" in sub.columns:
+            mapes.extend(sub["error_pct"].dropna().astype(float).tolist())
     if not maes and not mapes:
         return None
     out: Dict[str, float] = {}
@@ -807,5 +605,3 @@ def load_group_error_stats(group_name: str) -> Optional[Dict[str, float]]:
     if mapes:
         out["mape_pct"] = float(pd.Series(mapes).mean())
     return out
-
-

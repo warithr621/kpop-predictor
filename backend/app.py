@@ -102,18 +102,13 @@ def get_releases(group: str = Query(..., description="Exact group name as shown 
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-def _load_or_train_model(cutoff_date: date = DEFAULT_CUTOFF):
-    """Train the model using all data up to cutoff_date or load from cache.
-
-    Returns (models, data_by_group, signature)
-    """
+def _get_model(cutoff_date: date = DEFAULT_CUTOFF):
+    """Return (models, data_by_group, signature), training and caching if needed."""
     signature = compute_data_signature(ALBUMS_DIR)
-    # Include cutoff date in cache key to avoid stale cache when using current date
-    cutoff_str = cutoff_date.isoformat()
-    # Bump this when the feature schema / training objective changes.
-    cache_key = f"model_v12_quantiles_{signature}_{cutoff_str}"
+    # Bump the version string whenever feature columns or quantiles change.
+    cache_key = f"model_v12_quantiles_{signature}_{cutoff_date.isoformat()}"
     cache_path = os.path.join(CACHE_DIR, f"{cache_key}.pkl")
-    
+
     if os.path.exists(cache_path):
         with open(cache_path, "rb") as f:
             payload = pickle.load(f)
@@ -129,6 +124,19 @@ def _load_or_train_model(cutoff_date: date = DEFAULT_CUTOFF):
     return models, data_by_group, signature
 
 
+def _build_uncertainty(pred: dict, err: Optional[dict]) -> tuple[Optional[float], List[str]]:
+    notes: List[str] = []
+    if err is not None and (mae := err.get("mae_days")) is not None:
+        notes.append("uncertainty approximated by past MAE")
+        return mae, notes
+    try:
+        uncertainty = (pred["pred_days_high"] - pred["pred_days_low"]) / 2.0
+        notes.append("uncertainty derived from predicted interval")
+        return uncertainty, notes
+    except Exception:
+        return None, notes
+
+
 @app.post("/api/predict")
 def predict(req: PredictRequest):
     start_ts = datetime.utcnow()
@@ -136,7 +144,7 @@ def predict(req: PredictRequest):
         # Use current date as cutoff instead of hardcoded DEFAULT_CUTOFF
         current_cutoff, current_min_prediction = get_current_cutoff_dates()
         
-        models, data_by_group, signature = _load_or_train_model(current_cutoff)
+        models, data_by_group, signature = _get_model(current_cutoff)
 
         group = req.group
         group_key = sanitize(group)
@@ -156,19 +164,8 @@ def predict(req: PredictRequest):
         if pred is None:
             raise HTTPException(status_code=422, detail="Unable to produce a prediction for this group")
 
-        # uncertainty from historical errors if available
         err = load_group_error_stats(group)
-        uncertainty_days: Optional[float] = None
-        notes_parts: List[str] = []
-        if err is not None:
-            uncertainty_days = err.get("mae_days")
-            notes_parts.append("uncertainty approximated by past MAE")
-        if uncertainty_days is None:
-            try:
-                uncertainty_days = (pred["pred_days_high"] - pred["pred_days_low"]) / 2.0
-                notes_parts.append("uncertainty derived from predicted interval")
-            except Exception:
-                pass
+        uncertainty_days, notes_parts = _build_uncertainty(pred, err)
         runtime_sec = (datetime.utcnow() - start_ts).total_seconds()
         notes_parts.append(f"runtime: {runtime_sec:.1f}s")
         notes_parts.append(f"trained on data through {current_cutoff.isoformat()}")

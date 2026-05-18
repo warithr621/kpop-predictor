@@ -43,6 +43,9 @@ SHORTLIST_5TH = [g for g in SHORTLIST if GENERATION_MAPPINGS.get(g) == 5]
 
 WEEK_THRESHOLDS = [6, 8, 12, 18, 24]
 
+# Only 3rd-gen group still on a regular release cadence
+INCLUDE_3RD_GEN = {"TWICE"}
+
 ALL_GROUPS = [g for gen in KPOP_GROUPS.values() for g in gen]
 
 
@@ -65,10 +68,8 @@ def run_leave_last_out():
 
     results = []
     for group in ALL_GROUPS:
-        if GENERATION_MAPPINGS.get(group) == 3 and group != "TWICE":
+        if GENERATION_MAPPINGS.get(group) == 3 and group not in INCLUDE_3RD_GEN:
             continue
-            # TWICE is the only 3rd gen group that releases regularly enough (in past 2-3 years) to be relevant
-            # other than that, focus should be only on 4th + 5th gen groups
         group_key = sanitize(group)
         df_group = data_by_group.get(group_key)
         if df_group is None or df_group.empty:

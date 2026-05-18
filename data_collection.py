@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 from time import sleep
@@ -70,8 +71,8 @@ def artist_album_fetch(id: str, pause: float=1.0, limit: int=100) -> List[Dict]:
 					if label_info and label_info[0].get("label"):
 						label = label_info[0]["label"].get("name", "")
 				sleep(pause)
-			except Exception:
-				pass
+			except Exception as e:
+				print(f"Warning: could not fetch release details for {rg_mbid}: {e}")
 
 			rows.append({
 				'title': title,
@@ -116,13 +117,10 @@ def scrape_albums():
 		if not id: continue
 		
 		rows = artist_album_fetch(id)
-		with open(path, 'w', encoding='utf-8') as f:
-			f.write('title,type,release_date,secondary_types,track_count,label\n')
-			for r in rows:
-				title  = r['title'].replace('"', '""')
-				s_type = r['secondary_types'].replace('"', '""')
-				lbl    = r['label'].replace('"', '""')
-				f.write(f'"{title}",{r["type"]},{r["release_date"]},"{s_type}",{r["track_count"]},"{lbl}"\n')
+		with open(path, 'w', encoding='utf-8', newline='') as f:
+			writer = csv.DictWriter(f, fieldnames=['title', 'type', 'release_date', 'secondary_types', 'track_count', 'label'])
+			writer.writeheader()
+			writer.writerows(rows)
 
 		pd.read_csv(path).sort_values(by='release_date').to_csv(path, index=False)
 		print(f"Finished processing {group}")
