@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { fetchGroups } from '@/lib/api';
 import Typing from '@/components/Typing';
+import GenerationSection from '@/components/GenerationSection';
 
 export default function Home() {
   const router = useRouter();
-  const [groups, setGroups]     = useState([]);
-  const [error, setError]       = useState(null);
-  const [loaded, setLoaded]     = useState(false);
+  const [groups, setGroups] = useState([]);
+  const [error, setError]   = useState(null);
+  const [loaded, setLoaded] = useState(false);
   const [headerDone, setHeaderDone] = useState(false);
 
   useEffect(() => {
@@ -24,16 +25,14 @@ export default function Home() {
   const onPick = name => router.push(`/group?name=${encodeURIComponent(name)}`);
 
   return (
-    <main style={{ minHeight: '100vh', paddingTop: '64px', paddingBottom: '80px', paddingLeft: '24px', paddingRight: '24px' }}>
+    <main className="page-container">
 
       {/* ── Header ── */}
       <div style={{ textAlign: 'center', marginBottom: '56px' }}>
-        <div>
-          <Typing
-            text="Welcome to Warith's K-pop Release Predictor"
-            onComplete={() => setHeaderDone(true)}
-          />
-        </div>
+        <Typing
+          text="Welcome to Warith's K-pop Release Predictor"
+          onComplete={() => setHeaderDone(true)}
+        />
         <p
           className="subheading-reveal"
           style={{
@@ -54,19 +53,7 @@ export default function Home() {
 
       {/* ── Error ── */}
       {error && (
-        <div style={{
-          maxWidth: '420px',
-          margin: '0 auto',
-          padding: '12px 16px',
-          borderRadius: '10px',
-          background: 'rgba(255,60,60,0.08)',
-          border: '1px solid rgba(255,60,60,0.2)',
-          color: '#ff7070',
-          fontFamily: 'var(--font-body)',
-          fontSize: '14px',
-        }}>
-          {error}
-        </div>
+        <div className="error-banner">{error}</div>
       )}
 
       {/* ── Group grid ── */}
@@ -78,50 +65,13 @@ export default function Home() {
           gridTemplateColumns: '1fr 1px 1fr',
           gap: '0 32px',
         }}>
+          <GenerationSection label="4th Gen" groups={fourthGen} animationClass="fade-up" onPick={onPick} />
 
-          {/* 4th Gen */}
-          <div className="fade-up">
-            <div style={{ marginBottom: '14px' }}>
-              <span className="gen-badge-4th">4th Generation</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-              {fourthGen.map(g => (
-                <button
-                  key={g.name}
-                  className="card-4th"
-                  onClick={() => onPick(g.name)}
-                >
-                  <div className="card-name">{g.name}</div>
-                  {g.company && <div className="card-company">{g.company}</div>}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Divider */}
           <div style={{
             background: 'linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.08) 15%, rgba(255,255,255,0.08) 85%, transparent 100%)',
           }} />
 
-          {/* 5th Gen */}
-          <div className="fade-up fade-up-delay-1">
-            <div style={{ marginBottom: '14px' }}>
-              <span className="gen-badge-5th">5th Generation</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-              {fifthGen.map(g => (
-                <button
-                  key={g.name}
-                  className="card-5th"
-                  onClick={() => onPick(g.name)}
-                >
-                  <div className="card-name">{g.name}</div>
-                  {g.company && <div className="card-company">{g.company}</div>}
-                </button>
-              ))}
-            </div>
-          </div>
-
+          <GenerationSection label="5th Gen" groups={fifthGen} animationClass="fade-up fade-up-delay-1" onPick={onPick} />
         </div>
       )}
     </main>
