@@ -72,6 +72,7 @@ SOLOISTS = {
 	'TZUYU': 'TWICE',
 	'NAYEON': 'TWICE',
 	'JIHYO': 'TWICE',
+	'CHAEYOUNG': 'TWICE',
 	'MISAMO': 'TWICE',
 	'Shownu': 'Monsta X',
 	'KIHYUN': 'Monsta X',

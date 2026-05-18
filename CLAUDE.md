@@ -35,7 +35,7 @@ source ~/venv/bin/activate && python analysis.py
 Full-stack K-pop release prediction app: a Python/FastAPI ML backend + Next.js frontend.
 
 ### Data layer
-- `albums/` — one CSV per artist/group (`title, type, release_date`, optional `secondary_types, track_count, label`), scraped from MusicBrainz via `data_collection.py`. Compilations, live albums, remixes, and demos are filtered at load time.
+- `albums/` — one CSV per artist/group (`title, type, release_date`, optional `secondary_types, track_count, label`), scraped from MusicBrainz via `data_collection.py`. Entries with excluded `secondary_types` are silently dropped at load time (`_EXCLUDED_SECONDARY = {"compilation", "live", "remix", "demo", "soundtrack"}`). The CSVs are treated as raw archives; filtering is always applied at load time, not at scrape time.
 - `artist_ids.json` — cached MusicBrainz artist IDs to avoid re-scraping.
 - `info.py` — single source of truth for all static metadata:
   - `KPOP_GROUPS` — groups by generation (3rd/4th/5th)
