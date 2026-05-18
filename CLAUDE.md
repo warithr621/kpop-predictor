@@ -51,7 +51,7 @@ Full-stack K-pop release prediction app: a Python/FastAPI ML backend + Next.js f
   - `extract_features_from_group` / `predict_next_release_lightgbm_interval` must stay in sync: both must compute the same feature set in the same way
   - Overdue groups (p50 raw date < today) are advanced forward by a shared cycle count anchored on p50 to prevent quantile collapse
   - Final date ordering is enforced by sorting all three (date, days) pairs together — do not revert to piecemeal min/max
-  - Cache key prefix: `model_v10_quantiles_`
+  - Cache key prefix: `model_v11_quantiles_`
 - `app.py` — FastAPI app: `/api/groups`, `/api/releases`, `/api/predict`, `/api/status`. Trained models are pickled to `backend/cache/` keyed by a data signature + cutoff date; cache auto-invalidates when CSVs change. **Bump the cache key version** (`model_vN_quantiles_`) whenever feature columns or quantiles change.
 - `analysis.py` (root) — offline backtest (leave-last-out): withholds each group's most recent release and reports MAE/coverage/within-N-weeks. Run this to sanity-check any model change.
 

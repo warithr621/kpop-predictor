@@ -83,7 +83,7 @@ def load_group_releases(csv_path: str) -> pd.DataFrame:
             df[col] = default
     df["track_count"] = pd.to_numeric(df["track_count"], errors="coerce").fillna(0).astype(int)
 
-    _EXCLUDED_SECONDARY = {"compilation", "live", "remix", "demo"}
+    _EXCLUDED_SECONDARY = {"compilation", "live", "remix", "demo", "soundtrack"}
 
     def _has_excluded(val):
         parts = {p.strip().lower() for p in str(val).split("|") if p.strip()}
