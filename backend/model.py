@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from lifelines import WeibullAFTFitter
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if ROOT_DIR not in sys.path:
@@ -440,17 +441,27 @@ def train_lightgbm_quantile_models(
     return models
 
 
+def train_weibull_aft_model(df_train: pd.DataFrame) -> WeibullAFTFitter:
+    """Train a Weibull AFT model on raw inter-release intervals (not log-transformed).
+
+    Weibull requires strictly positive durations; intervals of 0 are clipped to 1 day.
+    """
+    df_pos = df_train.copy()
+    df_pos["target_days"] = df_pos["target_days"].clip(lower=1.0)
+    fitter = WeibullAFTFitter(penalizer=0.01)
+    fitter.fit(df_pos[FEATURE_COLS + ["target_days"]], duration_col="target_days")
+    return fitter
+
+
 # ── Prediction ─────────────────────────────────────────────────────────────────
 
-def predict_next_release_lightgbm_interval(
+def _extract_inference_features(
     df_group: pd.DataFrame,
-    models: Dict[float, lgb.LGBMRegressor],
     group_key: str,
     cutoff: date,
-    min_prediction_date: date,
     all_releases: Dict[str, pd.DataFrame],
-) -> Optional[Dict[str, object]]:
-    """Predict the next release window using quantile regression (p25/p50/p75)."""
+) -> Optional[tuple]:
+    """Shared feature extraction for all inference functions. Returns (X_pred, last_date) or None."""
     cutoff_dt = pd.Timestamp(cutoff)
     df_cut = df_group[df_group["release_date"] <= cutoff_dt].sort_values("release_date").reset_index(drop=True)
     if len(df_cut) < 2:
@@ -478,7 +489,7 @@ def predict_next_release_lightgbm_interval(
         last_release.get("label", "") if "label" in last_release.index else "",
         company,
     )
-    second_last = df_cut.iloc[-2]
+    second_last    = df_cut.iloc[-2]
     days_to_awards = days_to_next_award_show(last_date)
 
     feature_dict = {
@@ -504,6 +515,56 @@ def predict_next_release_lightgbm_interval(
     }
 
     X_pred = pd.DataFrame([feature_dict], columns=FEATURE_COLS)
+    return X_pred, last_date
+
+
+def _apply_cycles_and_sort(
+    last_date,
+    pred_days_25: int,
+    pred_days_50: int,
+    pred_days_75: int,
+    min_prediction_date: date,
+) -> Dict[str, object]:
+    """Advance overdue predictions by whole cycles and enforce low/med/high ordering."""
+    pred_date_25 = last_date + timedelta(days=pred_days_25)
+    pred_date_50 = last_date + timedelta(days=pred_days_50)
+    pred_date_75 = last_date + timedelta(days=pred_days_75)
+
+    min_pred_dt = pd.Timestamp(min_prediction_date)
+    cycles = math.ceil((min_pred_dt - pred_date_50).days / pred_days_50) if pred_date_50 < min_pred_dt else 0
+    pred_date_25 = max(pred_date_25 + timedelta(days=cycles * pred_days_25), min_pred_dt)
+    pred_date_50 = pred_date_50 + timedelta(days=cycles * pred_days_50)
+    pred_date_75 = pred_date_75 + timedelta(days=cycles * pred_days_75)
+
+    pairs = sorted(
+        [(pred_date_25, pred_days_25), (pred_date_50, pred_days_50), (pred_date_75, pred_days_75)],
+        key=lambda x: x[0],
+    )
+    (pred_date_low, pred_days_low), (pred_date_med, pred_days_med), (pred_date_high, pred_days_high) = pairs
+
+    return {
+        "pred_date_low":  pred_date_low,
+        "pred_date_med":  pred_date_med,
+        "pred_date_high": pred_date_high,
+        "pred_days_low":  pred_days_low,
+        "pred_days_med":  pred_days_med,
+        "pred_days_high": pred_days_high,
+    }
+
+
+def predict_next_release_lightgbm_interval(
+    df_group: pd.DataFrame,
+    models: Dict[float, lgb.LGBMRegressor],
+    group_key: str,
+    cutoff: date,
+    min_prediction_date: date,
+    all_releases: Dict[str, pd.DataFrame],
+) -> Optional[Dict[str, object]]:
+    """Predict the next release window using quantile regression (p25/p50/p75)."""
+    result = _extract_inference_features(df_group, group_key, cutoff, all_releases)
+    if result is None:
+        return None
+    X_pred, last_date = result
 
     def pred_days_from_log(pred_log: float, round_mode: str) -> int:
         raw = max(0.0, float(np.expm1(pred_log)))
@@ -520,36 +581,42 @@ def predict_next_release_lightgbm_interval(
     pred_days_50 = pred_days_from_log(float(models[q50].predict(X_pred)[0]), "round")
     pred_days_75 = pred_days_from_log(float(models[q75].predict(X_pred)[0]), "ceil")
 
-    # Enforce ordering
+    # Enforce ordering before cycle-advance
     pred_days_25 = min(pred_days_25, pred_days_50)
     pred_days_75 = max(pred_days_75, pred_days_50)
 
-    pred_date_25 = last_date + timedelta(days=pred_days_25)
-    pred_date_50 = last_date + timedelta(days=pred_days_50)
-    pred_date_75 = last_date + timedelta(days=pred_days_75)
+    return _apply_cycles_and_sort(last_date, pred_days_25, pred_days_50, pred_days_75, min_prediction_date)
 
-    # Advance all three by the same p50-cycle count so they clear min_prediction_date
-    min_pred_dt = pd.Timestamp(min_prediction_date)
-    cycles = math.ceil((min_pred_dt - pred_date_50).days / pred_days_50) if pred_date_50 < min_pred_dt else 0
-    pred_date_25 = max(pred_date_25 + timedelta(days=cycles * pred_days_25), min_pred_dt)
-    pred_date_50 = pred_date_50 + timedelta(days=cycles * pred_days_50)
-    pred_date_75 = pred_date_75 + timedelta(days=cycles * pred_days_75)
 
-    # Sort (date, days) pairs together to keep them consistent
-    pairs = sorted(
-        [(pred_date_25, pred_days_25), (pred_date_50, pred_days_50), (pred_date_75, pred_days_75)],
-        key=lambda x: x[0],
-    )
-    (pred_date_low, pred_days_low), (pred_date_med, pred_days_med), (pred_date_high, pred_days_high) = pairs
+def predict_next_release_weibull_interval(
+    df_group: pd.DataFrame,
+    model: WeibullAFTFitter,
+    group_key: str,
+    cutoff: date,
+    min_prediction_date: date,
+    all_releases: Dict[str, pd.DataFrame],
+) -> Optional[Dict[str, object]]:
+    """Predict the next release window using Weibull AFT survival analysis (p25/p50/p75)."""
+    result = _extract_inference_features(df_group, group_key, cutoff, all_releases)
+    if result is None:
+        return None
+    X_pred, last_date = result
 
-    return {
-        "pred_date_low":  pred_date_low,
-        "pred_date_med":  pred_date_med,
-        "pred_date_high": pred_date_high,
-        "pred_days_low":  pred_days_low,
-        "pred_days_med":  pred_days_med,
-        "pred_days_high": pred_days_high,
-    }
+    def safe_days(p: float, round_mode: str) -> int:
+        raw = max(1.0, float(model.predict_percentile(X_pred, p=p).iloc[0]))
+        if round_mode == "floor": return max(1, int(np.floor(raw)))
+        if round_mode == "ceil":  return max(1, int(np.ceil(raw)))
+        return max(1, int(np.round(raw)))
+
+    pred_days_25 = safe_days(0.25, "floor")
+    pred_days_50 = safe_days(0.50, "round")
+    pred_days_75 = safe_days(0.75, "ceil")
+
+    # Enforce ordering before cycle-advance
+    pred_days_25 = min(pred_days_25, pred_days_50)
+    pred_days_75 = max(pred_days_75, pred_days_50)
+
+    return _apply_cycles_and_sort(last_date, pred_days_25, pred_days_50, pred_days_75, min_prediction_date)
 
 
 # ── Cache utilities ────────────────────────────────────────────────────────────
