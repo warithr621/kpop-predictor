@@ -123,7 +123,8 @@ def run_leave_last_out():
         for w in WEEK_THRESHOLDS:
             print(f"  Within ±{w:2d} weeks       : {window_acc(errs, w):.1f}%")
 
-    print_stats("ALL GROUPS", df)
+    df_4th_5th = df[df["group"].apply(lambda g: GENERATION_MAPPINGS.get(g) in {4, 5})].copy()
+    print_stats("ALL GROUPS", df_4th_5th)
     print()
 
     shortlist_df = df[df["group"].isin(SHORTLIST)].copy()
