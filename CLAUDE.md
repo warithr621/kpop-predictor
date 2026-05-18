@@ -23,7 +23,7 @@ npm run dev    # runs on port 3000
 source ~/venv/bin/activate && python data_collection.py
 ```
 
-**Backtest / model evaluation** (runs both LightGBM and Weibull AFT, prints side-by-side comparison):
+**Backtest / model evaluation**:
 ```bash
 source ~/venv/bin/activate && python analysis.py
 ```
@@ -45,17 +45,17 @@ Full-stack K-pop release prediction app: a Python/FastAPI ML backend + Next.js f
   - `AWARD_SHOWS` — major K-pop award ceremony dates (MAMA, MMA, GDA, etc.), used to compute `days_to_awards` and `award_run_up` features
 
 ### Backend (`backend/`)
-- `model.py` — all ML logic: feature engineering, model training, prediction, and caching utilities.
-  - **LightGBM** (`train_lightgbm_quantile_models`): 3 separate quantile regressors (p25/p50/p75) on log-transformed target (`target_days_log = log1p(days)`). Predicted via `predict_next_release_lightgbm_interval`.
-  - **Weibull AFT** (`train_weibull_aft_model`): `lifelines.WeibullAFTFitter` on raw `target_days` (not log-transformed — the AFT model applies the log-linear transform internally). Predicted via `predict_next_release_weibull_interval`. Quantiles extracted with `model.predict_percentile(X, p=0.25/0.50/0.75)`. `penalizer=0.01` for L2 regularization.
-  - Shared inference helpers: `_extract_inference_features` (builds feature row from last release) and `_apply_cycles_and_sort` (advances overdue predictions by whole cycles + enforces low/med/high ordering) — used by both predictors.
+- `model.py` — all ML logic: feature engineering, Weibull AFT training, prediction, and caching utilities.
+  - Uses `lifelines.WeibullAFTFitter` (`train_weibull_aft_model`) on raw `target_days` — the AFT model applies the log-linear transform internally; do **not** pass log-transformed values. `penalizer=0.01` for L2 regularization. Zero-day intervals are clipped to 1 before fitting.
+  - Quantile predictions via `model.predict_percentile(X, p=0.25/0.50/0.75)`, returned by `predict_next_release_weibull_interval`.
+  - Shared inference helpers: `_extract_inference_features` (builds feature row from last release snapshot) and `_apply_cycles_and_sort` (advances overdue predictions by whole cycles anchored on p50, then sorts low/med/high).
   - Uses `stable_hash_int` (SHA-256-based) for deterministic categorical encoding — never use sklearn `LabelEncoder` here
-  - Feature helpers `_compute_interval_stats`, `_compute_solo_features`, `_compute_seasonality` are shared by both training and inference — edit the helpers, not the callers, to change feature logic
+  - Feature helpers `_compute_interval_stats`, `_compute_solo_features`, `_compute_seasonality` are shared by training and inference — edit the helpers, not the callers, to change feature logic
   - `FEATURE_COLS` is the single source of truth for the 33-column feature list; it is used by all training and inference paths
-  - Cache key prefix: `model_v12_quantiles_`
+  - Cache key prefix: `model_v13_weibull_`
   - Key constants: `EMA_ALPHA = 0.3`, `COMEBACK_MONTHS = {1,2,3,7,8,9}`, `AWARD_RUNUP_DAYS = 75`
-- `app.py` — FastAPI app: `/api/groups`, `/api/releases`, `/api/predict`, `/api/status`. Uses LightGBM for live predictions. Trained models are pickled to `backend/cache/` keyed by a data signature + cutoff date; cache auto-invalidates when CSVs change. **Bump the cache key version** (`model_vN_quantiles_`) whenever feature columns or quantiles change.
-- `analysis.py` (root) — offline backtest (leave-last-out): withholds each group's most recent release, runs both LightGBM and Weibull AFT, and prints a side-by-side comparison of MAE/coverage/within-N-weeks. `INCLUDE_3RD_GEN` controls which 3rd-gen groups are evaluated (currently only TWICE).
+- `app.py` — FastAPI app: `/api/groups`, `/api/releases`, `/api/predict`, `/api/status`. Trained model is pickled to `backend/cache/` keyed by a data signature + cutoff date; cache auto-invalidates when CSVs change. **Bump the cache key version** (`model_vN_weibull_`) whenever feature columns change.
+- `analysis.py` (root) — offline backtest (leave-last-out): withholds each group's most recent release and reports MAE/coverage/within-N-weeks for the Weibull AFT model. `INCLUDE_3RD_GEN` controls which 3rd-gen groups are evaluated (currently only TWICE).
 
 ### Frontend (`frontend/src/`)
 - Next.js (Pages Router) + Tailwind CSS

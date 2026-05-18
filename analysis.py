@@ -24,9 +24,7 @@ from backend.model import (
     sanitize,
     load_all_releases,
     prepare_training_data,
-    train_lightgbm_quantile_models,
     train_weibull_aft_model,
-    predict_next_release_lightgbm_interval,
     predict_next_release_weibull_interval,
     get_current_cutoff_dates,
 )
@@ -63,16 +61,12 @@ def run_leave_last_out():
 
     # Train a global model using today's cutoff (full data)
     current_cutoff, _ = get_current_cutoff_dates()
-    print(f"Training models with cutoff {current_cutoff}...")
+    print(f"Training model with cutoff {current_cutoff}...")
     df_train = prepare_training_data(data_by_group, current_cutoff)
-    lgbm_models = train_lightgbm_quantile_models(df_train)
-    print(f"LightGBM trained on {len(df_train)} rows.")
-    weibull_model = train_weibull_aft_model(df_train)
-    print("Weibull AFT trained.\n")
+    model = train_weibull_aft_model(df_train)
+    print(f"Weibull AFT trained on {len(df_train)} rows.\n")
 
-    lgbm_results = []
-    weibull_results = []
-
+    results = []
     for group in ALL_GROUPS:
         if GENERATION_MAPPINGS.get(group) == 3 and group not in INCLUDE_3RD_GEN:
             continue
@@ -83,50 +77,35 @@ def run_leave_last_out():
 
         last_date = pd.to_datetime(df_group["release_date"]).max().date()
         cutoff = last_date - timedelta(days=1)
-        min_pred = cutoff + timedelta(days=1)
 
-        lgbm_pred = predict_next_release_lightgbm_interval(
+        pred = predict_next_release_weibull_interval(
             df_group=df_group,
-            models=lgbm_models,
+            model=model,
             group_key=group_key,
             cutoff=cutoff,
-            min_prediction_date=min_pred,
+            min_prediction_date=cutoff + timedelta(days=1),
             all_releases=data_by_group,
         )
-        weibull_pred = predict_next_release_weibull_interval(
-            df_group=df_group,
-            model=weibull_model,
-            group_key=group_key,
-            cutoff=cutoff,
-            min_prediction_date=min_pred,
-            all_releases=data_by_group,
-        )
+        if pred is None:
+            continue
 
-        def make_row(group, last_date, pred):
-            if pred is None:
-                return None
-            pred_med = to_date(pred["pred_date_med"])
-            pred_low = to_date(pred["pred_date_low"])
-            pred_high = to_date(pred["pred_date_high"])
-            return {
-                "group": group,
-                "actual": last_date,
-                "pred_med": pred_med,
-                "pred_low": pred_low,
-                "pred_high": pred_high,
-                "error_days": abs((pred_med - last_date).days),
-                "signed_days": (pred_med - last_date).days,
-            }
+        pred_med = to_date(pred["pred_date_med"])
+        pred_low = to_date(pred["pred_date_low"])
+        pred_high = to_date(pred["pred_date_high"])
+        error_days = abs((pred_med - last_date).days)
+        signed_days = (pred_med - last_date).days
 
-        row_lgbm = make_row(group, last_date, lgbm_pred)
-        row_weibull = make_row(group, last_date, weibull_pred)
-        if row_lgbm:
-            lgbm_results.append(row_lgbm)
-        if row_weibull:
-            weibull_results.append(row_weibull)
+        results.append({
+            "group": group,
+            "actual": last_date,
+            "pred_med": pred_med,
+            "pred_low": pred_low,
+            "pred_high": pred_high,
+            "error_days": error_days,
+            "signed_days": signed_days
+        })
 
-    df = pd.DataFrame(lgbm_results)
-    df_weibull = pd.DataFrame(weibull_results)
+    df = pd.DataFrame(results)
 
     def window_acc(errors, weeks):
         return 100.0 * np.mean(errors <= weeks * 7)
@@ -145,11 +124,11 @@ def run_leave_last_out():
             print(f"  Within ±{w:2d} weeks       : {window_acc(errs, w):.1f}%")
 
     df_4th_5th = df[df["group"].apply(lambda g: GENERATION_MAPPINGS.get(g) in {4, 5})].copy()
-    print_stats("LightGBM — ALL GROUPS", df_4th_5th)
+    print_stats("ALL GROUPS", df_4th_5th)
     print()
 
     shortlist_df = df[df["group"].isin(SHORTLIST)].copy()
-    print_stats("LightGBM — SHORTLIST (18 groups)", shortlist_df)
+    print_stats("SHORTLIST (18 groups)", shortlist_df)
 
     def print_breakdown(label, subset_df):
         subset_sorted = subset_df.sort_values("error_days")
@@ -172,59 +151,10 @@ def run_leave_last_out():
 
     df4 = df[df["group"].isin(SHORTLIST_4TH)].copy()
     df5 = df[df["group"].isin(SHORTLIST_5TH)].copy()
-    print_breakdown("LightGBM — 4th Gen", df4)
-    print_breakdown("LightGBM — 5th Gen", df5)
+    print_breakdown("4th Gen", df4)
+    print_breakdown("5th Gen", df5)
 
-    # ── Weibull AFT section ────────────────────────────────────────────────────
-    df_w_4th_5th = df_weibull[df_weibull["group"].apply(lambda g: GENERATION_MAPPINGS.get(g) in {4, 5})].copy()
-    print_stats("Weibull AFT — ALL GROUPS", df_w_4th_5th)
-    print()
-
-    shortlist_w_df = df_weibull[df_weibull["group"].isin(SHORTLIST)].copy()
-    print_stats("Weibull AFT — SHORTLIST (18 groups)", shortlist_w_df)
-
-    df4w = df_weibull[df_weibull["group"].isin(SHORTLIST_4TH)].copy()
-    df5w = df_weibull[df_weibull["group"].isin(SHORTLIST_5TH)].copy()
-    print_breakdown("Weibull AFT — 4th Gen", df4w)
-    print_breakdown("Weibull AFT — 5th Gen", df5w)
-
-    # ── Side-by-side comparison ───────────────────────────────────────────────
-    print(f"\n{'='*62}")
-    print(f"  MODEL COMPARISON — Leave-Last-Out Backtest (All 4th+5th Gen)")
-    print(f"{'='*62}")
-    print(f"  {'Metric':<30} {'LightGBM':>12} {'Weibull AFT':>12}")
-    print(f"  {'-'*30} {'-'*12} {'-'*12}")
-
-    def cmp_row(label, lgbm_val, w_val, fmt="{:.1f}"):
-        print(f"  {label:<30} {fmt.format(lgbm_val):>12} {fmt.format(w_val):>12}")
-
-    l_errs = df_4th_5th["error_days"].values
-    w_errs = df_w_4th_5th["error_days"].values
-    l_signed = df_4th_5th["signed_days"].values
-    w_signed = df_w_4th_5th["signed_days"].values
-
-    cmp_row("MAE (days)", np.mean(l_errs), np.mean(w_errs))
-    cmp_row("Median AE (days)", np.median(l_errs), np.median(w_errs))
-    cmp_row("Bias / median signed (days)", np.median(l_signed), np.median(w_signed), fmt="{:+.1f}")
-    for w in WEEK_THRESHOLDS:
-        cmp_row(f"Within ±{w:2d} weeks (%)", window_acc(l_errs, w), window_acc(w_errs, w))
-
-    print(f"{'='*62}")
-    print(f"\n  Per-group errors (sorted by LightGBM error):")
-    all_groups_in_results = sorted(
-        set(df_4th_5th["group"]) | set(df_w_4th_5th["group"])
-    )
-    lgbm_map = {r["group"]: r["error_days"] for _, r in df_4th_5th.iterrows()}
-    w_map    = {r["group"]: r["error_days"] for _, r in df_w_4th_5th.iterrows()}
-    for g in sorted(all_groups_in_results, key=lambda g: lgbm_map.get(g, 9999)):
-        l_e = lgbm_map.get(g)
-        w_e = w_map.get(g)
-        l_s = f"{l_e:>5}d" if l_e is not None else "   n/a"
-        w_s = f"{w_e:>5}d" if w_e is not None else "   n/a"
-        winner = "<-- lgbm" if (l_e is not None and w_e is not None and l_e < w_e) else ("<-- weibull" if (l_e is not None and w_e is not None and w_e < l_e) else "")
-        print(f"    {g:<22}  lgbm={l_s}  weibull={w_s}  {winner}")
-
-    return df, df_weibull
+    return df
 
 
 if __name__ == "__main__":

@@ -26,8 +26,8 @@ from backend.model import (
     load_group_releases,
     load_all_releases,
     prepare_training_data,
-    train_lightgbm_quantile_models,
-    predict_next_release_lightgbm_interval,
+    train_weibull_aft_model,
+    predict_next_release_weibull_interval,
     compute_data_signature,
     load_group_error_stats,
     get_current_cutoff_dates,
@@ -106,7 +106,7 @@ def _get_model(cutoff_date: date = DEFAULT_CUTOFF):
     """Return (models, data_by_group, signature), training and caching if needed."""
     signature = compute_data_signature(ALBUMS_DIR)
     # Bump the version string whenever feature columns or quantiles change.
-    cache_key = f"model_v12_quantiles_{signature}_{cutoff_date.isoformat()}"
+    cache_key = f"model_v13_weibull_{signature}_{cutoff_date.isoformat()}"
     cache_path = os.path.join(CACHE_DIR, f"{cache_key}.pkl")
 
     if os.path.exists(cache_path):
@@ -118,7 +118,7 @@ def _get_model(cutoff_date: date = DEFAULT_CUTOFF):
     df_train = prepare_training_data(data_by_group, cutoff_date)
     if df_train.empty:
         raise HTTPException(status_code=500, detail="No training data available")
-    models = train_lightgbm_quantile_models(df_train)
+    models = train_weibull_aft_model(df_train)
     with open(cache_path, "wb") as f:
         pickle.dump({"models": models, "data_by_group": data_by_group}, f)
     return models, data_by_group, signature
@@ -152,9 +152,9 @@ def predict(req: PredictRequest):
         if df_group is None or df_group.empty:
             raise HTTPException(status_code=404, detail=f"No data for group '{group}'")
 
-        pred = predict_next_release_lightgbm_interval(
+        pred = predict_next_release_weibull_interval(
             df_group=df_group,
-            models=models,
+            model=models,
             group_key=group_key,
             cutoff=current_cutoff,
             min_prediction_date=current_min_prediction,

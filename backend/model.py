@@ -8,7 +8,6 @@ import sys
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from lifelines import WeibullAFTFitter
@@ -393,53 +392,6 @@ def prepare_training_data(data_by_group: Dict[str, pd.DataFrame], cutoff: date) 
     return df_features
 
 
-def train_lightgbm_quantile_models(
-    df_train: pd.DataFrame,
-    quantiles: List[float] = [0.25, 0.5, 0.75],
-) -> Dict[float, lgb.LGBMRegressor]:
-    X = df_train[FEATURE_COLS]
-    Y = df_train["target_days_log"]
-
-    # Temporal split: latest 15% of date range → validation set for early stopping
-    dates = pd.to_datetime(df_train["as_of_date"])
-    date_min, date_max = dates.min(), dates.max()
-    val_threshold = date_min + (date_max - date_min) * 0.85
-    val_mask = dates >= val_threshold
-    X_tr, Y_tr = X[~val_mask], Y[~val_mask]
-    X_val, Y_val = X[val_mask], Y[val_mask]
-
-    base_params = {
-        "objective": "quantile",
-        "metric": "mae",
-        "boosting_type": "gbdt",
-        "num_leaves": 31,
-        "learning_rate": 0.05,
-        "feature_fraction": 0.8,
-        "bagging_fraction": 0.8,
-        "bagging_freq": 5,
-        "min_child_samples": 10,
-        "lambda_l1": 0.1,
-        "lambda_l2": 0.1,
-        "verbose": -1,
-        "random_state": 42,
-        "n_estimators": 500,
-    }
-
-    models: Dict[float, lgb.LGBMRegressor] = {}
-    for q in quantiles:
-        params = {**base_params, "alpha": q}
-        # Phase 1: find best n_estimators via early stopping
-        probe = lgb.LGBMRegressor(**params)
-        probe.fit(X_tr, Y_tr, eval_set=[(X_val, Y_val)],
-                  callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(-1)])
-        best_n = probe.best_iteration_ or params["n_estimators"]
-        # Phase 2: refit on full data
-        final = lgb.LGBMRegressor(**{**params, "n_estimators": best_n})
-        final.fit(X, Y)
-        models[q] = final
-
-    return models
-
 
 def train_weibull_aft_model(df_train: pd.DataFrame) -> WeibullAFTFitter:
     """Train a Weibull AFT model on raw inter-release intervals (not log-transformed).
@@ -551,41 +503,6 @@ def _apply_cycles_and_sort(
         "pred_days_high": pred_days_high,
     }
 
-
-def predict_next_release_lightgbm_interval(
-    df_group: pd.DataFrame,
-    models: Dict[float, lgb.LGBMRegressor],
-    group_key: str,
-    cutoff: date,
-    min_prediction_date: date,
-    all_releases: Dict[str, pd.DataFrame],
-) -> Optional[Dict[str, object]]:
-    """Predict the next release window using quantile regression (p25/p50/p75)."""
-    result = _extract_inference_features(df_group, group_key, cutoff, all_releases)
-    if result is None:
-        return None
-    X_pred, last_date = result
-
-    def pred_days_from_log(pred_log: float, round_mode: str) -> int:
-        raw = max(0.0, float(np.expm1(pred_log)))
-        if round_mode == "floor": return max(1, int(np.floor(raw)))
-        if round_mode == "ceil":  return max(1, int(np.ceil(raw)))
-        return max(1, int(np.round(raw)))
-
-    quantile_keys = sorted(models.keys())
-    q25 = 0.25 if 0.25 in models else quantile_keys[0]
-    q50 = 0.5  if 0.5  in models else min(quantile_keys, key=lambda x: abs(x - 0.5))
-    q75 = 0.75 if 0.75 in models else quantile_keys[-1]
-
-    pred_days_25 = pred_days_from_log(float(models[q25].predict(X_pred)[0]), "floor")
-    pred_days_50 = pred_days_from_log(float(models[q50].predict(X_pred)[0]), "round")
-    pred_days_75 = pred_days_from_log(float(models[q75].predict(X_pred)[0]), "ceil")
-
-    # Enforce ordering before cycle-advance
-    pred_days_25 = min(pred_days_25, pred_days_50)
-    pred_days_75 = max(pred_days_75, pred_days_50)
-
-    return _apply_cycles_and_sort(last_date, pred_days_25, pred_days_50, pred_days_75, min_prediction_date)
 
 
 def predict_next_release_weibull_interval(
