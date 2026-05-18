@@ -68,7 +68,10 @@ def get_group_from_csv_path(csv_path: str) -> str:
     return name
 
 
-def load_group_releases(csv_path: str) -> pd.DataFrame:
+_BASE_EXCLUDED_SECONDARY = {"compilation", "live", "remix", "demo", "soundtrack"}
+
+
+def load_group_releases(csv_path: str, excluded_secondary: set | None = None) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
     expected_cols = {"title", "type", "release_date"}
     missing = expected_cols - set(df.columns)
@@ -83,27 +86,69 @@ def load_group_releases(csv_path: str) -> pd.DataFrame:
             df[col] = default
     df["track_count"] = pd.to_numeric(df["track_count"], errors="coerce").fillna(0).astype(int)
 
-    _EXCLUDED_SECONDARY = {"compilation", "live", "remix", "demo", "soundtrack"}
+    effective_excluded = excluded_secondary if excluded_secondary is not None else _BASE_EXCLUDED_SECONDARY
 
     def _has_excluded(val):
         parts = {p.strip().lower() for p in str(val).split("|") if p.strip()}
-        return bool(parts & _EXCLUDED_SECONDARY)
+        return bool(parts & effective_excluded)
 
     df = df[~df["secondary_types"].apply(_has_excluded)].reset_index(drop=True)
     return df
 
 
-def load_all_releases(albums_dir: str) -> Dict[str, pd.DataFrame]:
+def _get_secondary_parts(val: str) -> set:
+    return {p.strip().lower() for p in str(val).split("|") if p.strip()}
+
+
+def load_all_releases(
+    albums_dir: str,
+    extra_excluded_secondary: set | None = None,
+    exclude_predebut_mixtape: bool = False,
+) -> Dict[str, pd.DataFrame]:
+    effective_excluded = _BASE_EXCLUDED_SECONDARY | (extra_excluded_secondary or set())
+
     group_to_df: Dict[str, pd.DataFrame] = {}
     for csv_path in sorted(glob.glob(os.path.join(albums_dir, "*.csv"))):
         group = get_group_from_csv_path(csv_path)
         try:
-            df = load_group_releases(csv_path)
+            df = load_group_releases(csv_path, excluded_secondary=effective_excluded)
         except Exception:
             continue
         if not df.empty:
             group_to_df[group] = df
-    return group_to_df
+
+    if not exclude_predebut_mixtape:
+        return group_to_df
+
+    # Build debut date per group: earliest release not tagged mixtape/street or spokenword
+    _UNOFFICIAL = {"mixtape/street", "spokenword"}
+    debut_dates: Dict[str, pd.Timestamp] = {}
+    for group, df in group_to_df.items():
+        official = df[~df["secondary_types"].apply(lambda v: bool(_get_secondary_parts(v) & _UNOFFICIAL))]
+        if not official.empty:
+            debut_dates[group] = official["release_date"].min()
+
+    # For soloists with no official releases, fall back to parent group's debut date
+    sanitized_soloists = {sanitize(k): sanitize(v) for k, v in SOLOISTS.items()}
+    for group in group_to_df:
+        if group not in debut_dates:
+            parent = sanitized_soloists.get(group)
+            if parent and parent in debut_dates:
+                debut_dates[group] = debut_dates[parent]
+
+    # Drop pre-debut mixtape/street rows
+    filtered: Dict[str, pd.DataFrame] = {}
+    for group, df in group_to_df.items():
+        debut = debut_dates.get(group)
+        if debut is None:
+            filtered[group] = df
+            continue
+        is_mixtape = df["secondary_types"].apply(lambda v: "mixtape/street" in _get_secondary_parts(v))
+        predebut = df["release_date"] < debut
+        df = df[~(is_mixtape & predebut)].reset_index(drop=True)
+        if not df.empty:
+            filtered[group] = df
+    return filtered
 
 
 def members_in_military_at(group_key: str, as_of: pd.Timestamp) -> int:

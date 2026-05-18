@@ -54,7 +54,7 @@ def to_date(x):
 
 def run_leave_last_out():
     print("Loading all releases...")
-    data_by_group = load_all_releases(ALBUMS_DIR)
+    data_by_group = load_all_releases(ALBUMS_DIR, exclude_predebut_mixtape=True)
 
     # Train a global model using today's cutoff (full data)
     current_cutoff, _ = get_current_cutoff_dates()

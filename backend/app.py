@@ -111,7 +111,7 @@ def _load_or_train_model(cutoff_date: date = DEFAULT_CUTOFF):
     # Include cutoff date in cache key to avoid stale cache when using current date
     cutoff_str = cutoff_date.isoformat()
     # Bump this when the feature schema / training objective changes.
-    cache_key = f"model_v11_quantiles_{signature}_{cutoff_str}"
+    cache_key = f"model_v12_quantiles_{signature}_{cutoff_str}"
     cache_path = os.path.join(CACHE_DIR, f"{cache_key}.pkl")
     
     if os.path.exists(cache_path):
@@ -119,7 +119,7 @@ def _load_or_train_model(cutoff_date: date = DEFAULT_CUTOFF):
             payload = pickle.load(f)
         return payload["models"], payload["data_by_group"], signature
 
-    data_by_group = load_all_releases(ALBUMS_DIR)
+    data_by_group = load_all_releases(ALBUMS_DIR, exclude_predebut_mixtape=True)
     df_train = prepare_training_data(data_by_group, cutoff_date)
     if df_train.empty:
         raise HTTPException(status_code=500, detail="No training data available")
