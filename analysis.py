@@ -121,7 +121,7 @@ def run_leave_last_out():
         print(f"  Median absolute error : {np.median(errs):.1f} days")
         print(f"  Mean absolute error   : {np.mean(errs):.1f} days")
         print(f"  Bias (median signed)  : {np.median(signed):+.1f} days")
-        print(f"  Interval coverage     : {coverage:.1f}%  (target ~50%)")
+        print(f"  Interval coverage     : {coverage:.1f}%")
         print()
         for w in WEEK_THRESHOLDS:
             print(f"  Within ±{w:2d} weeks       : {window_acc(errs, w):.1f}%")
@@ -156,29 +156,6 @@ def run_leave_last_out():
     df5 = df[df["group"].isin(SHORTLIST_5TH)].copy()
     print_breakdown("4th Gen", df4)
     print_breakdown("5th Gen", df5)
-
-    # Calibration summary
-    df["pred_days_med"] = df.apply(lambda r: (r["pred_med"] - r["actual"]).days + r["error_days"]
-                                    if r["signed_days"] >= 0
-                                    else r["error_days"] - (r["actual"] - r["pred_med"]).days, axis=1)
-    df["half_spread"] = df.apply(
-        lambda r: ((r["pred_high"] - r["pred_low"]).days / 2.0), axis=1
-    )
-    df["dist_to_med"] = df["error_days"].astype(float)
-    valid = df[df["half_spread"] > 0]
-    ratios = valid["dist_to_med"] / valid["half_spread"]
-    multiplier = float(np.median(ratios))
-
-    print(f"\n{'='*60}")
-    print(f"  CALIBRATION — p25/p75 interval coverage")
-    print(f"{'='*60}")
-    print(f"  All 4th+5th gen : {interval_coverage(df_4th_5th):.1f}%  (target ~50%)")
-    print(f"  Shortlist       : {interval_coverage(shortlist_df):.1f}%")
-    print(f"  4th Gen only    : {interval_coverage(df4):.1f}%")
-    print(f"  5th Gen only    : {interval_coverage(df5):.1f}%")
-    print(f"\n  Spread multiplier to hit ~50% coverage: ~{multiplier:.2f}x")
-    print(f"  (multiplier = median(|actual−med| / half_spread) across all groups)")
-    print(f"{'='*60}")
 
     return df
 
