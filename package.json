@@ -1,0 +1,11 @@
+{
+  "name": "kpop-predictor",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --names \"backend,frontend\" --prefix-colors \"cyan,magenta\" \"~/venv/bin/uvicorn backend.app:app --host 127.0.0.1 --port 8000 --reload\" \"cd frontend && npm run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
