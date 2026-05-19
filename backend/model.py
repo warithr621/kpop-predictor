@@ -534,6 +534,11 @@ def predict_next_release_weibull_interval(
     pred_days_25 = min(pred_days_25, pred_days_50)
     pred_days_75 = max(pred_days_75, pred_days_50)
 
+    # Calibration: raw p25/p75 spread covers ~90% of actuals; shrink to 1/3 to target ~50% coverage
+    SPREAD_MULTIPLIER = 0.33
+    pred_days_25 = max(1, pred_days_50 - int((pred_days_50 - pred_days_25) * SPREAD_MULTIPLIER))
+    pred_days_75 = pred_days_50 + int((pred_days_75 - pred_days_50) * SPREAD_MULTIPLIER)
+
     return _apply_cycles_and_sort(last_date, pred_days_25, pred_days_50, pred_days_75, min_prediction_date)
 
 

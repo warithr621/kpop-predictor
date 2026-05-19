@@ -106,7 +106,7 @@ def _get_model(cutoff_date: date = DEFAULT_CUTOFF):
     """Return (models, data_by_group, signature), training and caching if needed."""
     signature = compute_data_signature(ALBUMS_DIR)
     # Bump the version string whenever feature columns or quantiles change.
-    cache_key = f"model_v14_weibull_{signature}_{cutoff_date.isoformat()}"
+    cache_key = f"model_v15_weibull_{signature}_{cutoff_date.isoformat()}"
     cache_path = os.path.join(CACHE_DIR, f"{cache_key}.pkl")
 
     if os.path.exists(cache_path):
