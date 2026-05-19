@@ -43,9 +43,6 @@ SHORTLIST_5TH = [g for g in SHORTLIST if GENERATION_MAPPINGS.get(g) == 5]
 
 WEEK_THRESHOLDS = [6, 8, 12, 18, 24]
 
-# Only 3rd-gen group still on a regular release cadence
-INCLUDE_3RD_GEN = {"TWICE"}
-
 ALL_GROUPS = [g for gen in KPOP_GROUPS.values() for g in gen]
 
 
@@ -68,7 +65,7 @@ def run_leave_last_out():
 
     results = []
     for group in ALL_GROUPS:
-        if GENERATION_MAPPINGS.get(group) == 3 and group not in INCLUDE_3RD_GEN:
+        if GENERATION_MAPPINGS.get(group) == 3:
             continue
         group_key = sanitize(group)
         df_group = data_by_group.get(group_key)

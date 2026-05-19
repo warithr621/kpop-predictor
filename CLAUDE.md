@@ -55,7 +55,7 @@ Full-stack K-pop release prediction app: a Python/FastAPI ML backend + Next.js f
   - Cache key prefix: `model_v14_weibull_`
   - Key constants: `EMA_ALPHA = 0.3`, `COMEBACK_MONTHS = {1,2,3,7,8,9}`, `AWARD_RUNUP_DAYS = 75`
 - `app.py` — FastAPI app: `/api/groups`, `/api/releases`, `/api/predict`, `/api/status`. Trained model is pickled to `backend/cache/` keyed by a data signature + cutoff date; cache auto-invalidates when CSVs change. **Bump the cache key version** (`model_vN_weibull_`) whenever feature columns change.
-- `analysis.py` (root) — offline backtest (leave-last-out): withholds each group's most recent release and reports MAE/coverage/within-N-weeks for the Weibull AFT model. `INCLUDE_3RD_GEN` controls which 3rd-gen groups are evaluated (currently only TWICE).
+- `analysis.py` (root) — offline backtest (leave-last-out): withholds each group's most recent release and reports MAE/coverage/within-N-weeks for the Weibull AFT model.
 
 ### Frontend (`frontend/src/`)
 - Next.js (Pages Router) + Tailwind CSS
