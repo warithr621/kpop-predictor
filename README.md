@@ -1,6 +1,6 @@
 # K-pop Release Prediction Project
 
-The goal of this project is to use historical data scraped from MusicBrainz API to build a model that can forecast future K-pop releases for top 4th and 5th gen groups. All data is updated as of May 11, 2026.
+The goal of this project is to use historical data scraped from MusicBrainz API to build a model that can forecast future K-pop releases for top 4th and 5th gen groups. All data is updated as of May 20, 2026.
 
 ## Local Test Instructions
 
