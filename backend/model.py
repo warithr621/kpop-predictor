@@ -31,6 +31,22 @@ AWARD_RUNUP_DAYS = 75
 
 _BASE_EXCLUDED_SECONDARY = {"compilation", "live", "remix", "demo", "soundtrack"}
 
+JAPANESE_LABELS = {
+    "Warner Music Japan",
+    "NIPPONOPHONE",
+    "Ariola Japan",
+    "HYBE JAPAN",
+    "SM ENTERTAINMENT JAPAN",
+    "AVEX MUSIC CREATIVE INC.",
+    "avex entertainment",
+    "Universal Music Japan",
+}
+
+
+def _is_japanese_release(label: str) -> int:
+    label = str(label).strip()
+    return int(any(jp in label for jp in JAPANESE_LABELS))
+
 
 # ── Core utilities ─────────────────────────────────────────────────────────────
 
@@ -41,18 +57,6 @@ def sanitize(name: str) -> str:
     name = re.sub(r"\s+", "_", name)
     return name
 
-
-# ── Sanitized lookup tables ────────────────────────────────────────────────────
-# CSV filenames use sanitize() so all runtime lookups must go through these.
-
-SANITIZED_GENERATION_MAPPINGS  = {sanitize(k): v for k, v in GENERATION_MAPPINGS.items()}
-SANITIZED_GROUP_COMPANIES      = {sanitize(k): v for k, v in GROUP_COMPANIES.items()}
-SANITIZED_SOLOISTS             = {sanitize(s): sanitize(p) for s, p in SOLOISTS.items()}
-SOLOIST_ORIGINAL_BY_SANITIZED  = {sanitize(s): s for s in SOLOISTS}
-SANITIZED_MILITARY_SERVICE     = {sanitize(k): v for k, v in MILITARY_SERVICE.items()}
-
-
-# ── Core utilities ─────────────────────────────────────────────────────────────
 
 def get_current_cutoff_dates() -> tuple[date, date]:
     today = date.today()
@@ -73,6 +77,16 @@ def list_all_groups() -> List[str]:
 
 def get_group_from_csv_path(csv_path: str) -> str:
     return os.path.splitext(os.path.basename(csv_path))[0]
+
+
+# ── Sanitized lookup tables ────────────────────────────────────────────────────
+# CSV filenames use sanitize() so all runtime lookups must go through these.
+
+SANITIZED_GENERATION_MAPPINGS  = {sanitize(k): v for k, v in GENERATION_MAPPINGS.items()}
+SANITIZED_GROUP_COMPANIES      = {sanitize(k): v for k, v in GROUP_COMPANIES.items()}
+SANITIZED_SOLOISTS             = {sanitize(s): sanitize(p) for s, p in SOLOISTS.items()}
+SOLOIST_ORIGINAL_BY_SANITIZED  = {sanitize(s): s for s in SOLOISTS}
+SANITIZED_MILITARY_SERVICE     = {sanitize(k): v for k, v in MILITARY_SERVICE.items()}
 
 
 # ── Data loading ───────────────────────────────────────────────────────────────
@@ -307,6 +321,7 @@ FEATURE_COLS = [
     "interval_trend_5", "last_type_encoded", "type_changed",
     "track_count_log",
     "days_to_awards", "award_run_up",
+    "is_japanese_release",
 ]
 
 
@@ -372,6 +387,7 @@ def extract_features_from_group(
             "release_label":       effective_company,
             "days_to_awards":      days_to_awards,
             "award_run_up":        int(days_to_awards <= AWARD_RUNUP_DAYS),
+            "is_japanese_release": _is_japanese_release(current.get("label", "") if "label" in current.index else ""),
             "target_days":         float(target_days),
         })
 
@@ -464,6 +480,7 @@ def _extract_inference_features(
         "track_count_log":     float(np.log1p(int(last_release.get("track_count", 0)))),
         "days_to_awards":      days_to_awards,
         "award_run_up":        int(days_to_awards <= AWARD_RUNUP_DAYS),
+        "is_japanese_release": _is_japanese_release(last_release.get("label", "") if "label" in last_release.index else ""),
     }
 
     X_pred = pd.DataFrame([feature_dict], columns=FEATURE_COLS)

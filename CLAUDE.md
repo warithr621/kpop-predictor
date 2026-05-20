@@ -52,7 +52,7 @@ Full-stack K-pop release prediction app: a Python/FastAPI ML backend + Next.js f
   - Uses `stable_hash_int` (SHA-256-based) for deterministic categorical encoding — never use sklearn `LabelEncoder` here
   - Feature helpers `_compute_interval_stats`, `_compute_solo_features`, `_compute_seasonality` are shared by training and inference — edit the helpers, not the callers, to change feature logic
   - `FEATURE_COLS` is the single source of truth for the 33-column feature list; it is used by all training and inference paths
-  - Cache key prefix: `model_v15_weibull_`
+  - Cache key prefix: `model_v16_weibull_`
   - Key constants: `EMA_ALPHA = 0.3`, `COMEBACK_MONTHS = {1,2,3,7,8,9}`, `AWARD_RUNUP_DAYS = 75`
 - `app.py` — FastAPI app: `/api/groups`, `/api/releases`, `/api/predict`, `/api/status`. Trained model is pickled to `backend/cache/` keyed by a data signature + cutoff date; cache auto-invalidates when CSVs change. **Bump the cache key version** (`model_vN_weibull_`) whenever feature columns change.
 - `analysis.py` (root) — offline backtest (leave-last-out): withholds each group's most recent release and reports MAE/coverage/within-N-weeks for the Weibull AFT model.
