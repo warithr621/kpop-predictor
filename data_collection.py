@@ -1,7 +1,7 @@
+import argparse
 import csv
 import json
 import os
-from time import sleep
 from typing import Dict, List
 
 import musicbrainzngs as mb
@@ -39,7 +39,7 @@ def scrape_artist_ids():
 	print("All artist IDs have been retrieved")
 
 
-def artist_album_fetch(id: str, pause: float=1.0, limit: int=100) -> List[Dict]:
+def artist_album_fetch(id: str, limit: int=100) -> List[Dict]:
 	rows = []
 	offset = 0
 	while True:
@@ -70,7 +70,6 @@ def artist_album_fetch(id: str, pause: float=1.0, limit: int=100) -> List[Dict]:
 					label_info = r0.get("label-info-list", [])
 					if label_info and label_info[0].get("label"):
 						label = label_info[0]["label"].get("name", "")
-				sleep(pause)
 			except Exception as e:
 				print(f"Warning: could not fetch release details for {rg_mbid}: {e}")
 
@@ -85,7 +84,6 @@ def artist_album_fetch(id: str, pause: float=1.0, limit: int=100) -> List[Dict]:
 		offset += len(release_groups)
 		if offset >= total:
 			break
-		sleep(pause)
 
 	if rows:
 		kept = {}
@@ -108,11 +106,11 @@ def artist_album_fetch(id: str, pause: float=1.0, limit: int=100) -> List[Dict]:
 	return rows
 
 
-def scrape_albums():
+def scrape_albums(update_all: bool=False):
 	artist_cache = {} if not os.path.exists(ARTIST_ID_CACHE) else json.load(open(ARTIST_ID_CACHE, 'r', encoding='utf-8'))
 	for group in groups:
 		path = os.path.join("albums", sanitize(group) + '.csv')
-		if os.path.exists(path): continue
+		if not update_all and os.path.exists(path): continue
 		id = artist_cache[group]
 		if not id: continue
 		
@@ -128,9 +126,14 @@ def scrape_albums():
 
 
 def main():
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--all", action="store_true", dest="update_all",
+		help="Re-scrape every group/soloist, even if a CSV already exists")
+	args = parser.parse_args()
+
 	permissions_setup()
 	scrape_artist_ids()
-	scrape_albums()
+	scrape_albums(update_all=args.update_all)
 
 
 if __name__ == "__main__":
