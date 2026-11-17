@@ -63,14 +63,6 @@ def get_current_cutoff_dates() -> tuple[date, date]:
     return today, today + timedelta(days=1)
 
 
-def stable_hash_int(value: str, modulo: int) -> int:
-    """Deterministic SHA-256-based hash for categorical encoding."""
-    if modulo <= 0:
-        raise ValueError("modulo must be positive")
-    h = hashlib.sha256(value.encode("utf-8")).hexdigest()
-    return int(h[:16], 16) % modulo
-
-
 def list_all_groups() -> List[str]:
     return [group for groups in KPOP_GROUPS.values() for group in groups]
 
@@ -301,17 +293,12 @@ def _compute_seasonality(release_date: pd.Timestamp) -> dict:
     }
 
 
-def _get_effective_company(label_str, group_company: Optional[str]) -> str:
-    label = str(label_str).strip()
-    if label and label not in ("", "nan"):
-        return label
-    return group_company if group_company is not None else "Unknown"
-
-
 # ── Training pipeline ──────────────────────────────────────────────────────────
 
+# Hashed group/company/type IDs were removed: as plain numbers in a linear model they
+# imposed a meaningless ordering, and backtests showed they added no accuracy.
 FEATURE_COLS = [
-    "group_encoded", "generation", "type_encoded", "company_encoded",
+    "generation",
     "release_number", "days_since_debut", "days_since_previous",
     "avg_interval_so_far", "median_interval_so_far", "std_interval_so_far",
     "interval_cv", "ema_interval_so_far",
@@ -321,7 +308,7 @@ FEATURE_COLS = [
     "days_since_previous_norm", "release_acceleration",
     "members_in_military",
     "recent_solos_6m", "recent_solo_30d", "days_since_last_solo", "solo_frequency",
-    "interval_trend_5", "last_type_encoded", "type_changed",
+    "interval_trend_5", "type_changed",
     "track_count_log",
     "days_to_awards", "award_run_up",
     "is_japanese_release",
@@ -362,10 +349,6 @@ def extract_features_from_group(
         solos  = _compute_solo_features(solo_releases, current_date, debut_date)
         season = _compute_seasonality(current_date)
 
-        effective_company = _get_effective_company(
-            current.get("label", "") if "label" in current.index else "",
-            company,
-        )
         days_to_awards = days_to_next_award_show(current_date)
 
         features.append({
@@ -384,10 +367,8 @@ def extract_features_from_group(
             "releases_this_year":  len(prev_releases[prev_releases["release_date"].dt.year == current_date.year]),
             "releases_last_year":  len(prev_releases[prev_releases["release_date"].dt.year == current_date.year - 1]),
             "members_in_military": members_in_military_at(parent_group_key, current_date),
-            "last_type_encoded":   stable_hash_int(str(prev_releases.iloc[-1]["type"]), 10),
             "type_changed":        int(str(current["type"]) != str(prev_releases.iloc[-1]["type"])),
             "track_count_log":     float(np.log1p(int(current.get("track_count", 0)))),
-            "release_label":       effective_company,
             "days_to_awards":      days_to_awards,
             "award_run_up":        int(days_to_awards <= AWARD_RUNUP_DAYS),
             "is_japanese_release": _is_japanese_release(current.get("label", "") if "label" in current.index else ""),
@@ -404,9 +385,6 @@ def prepare_training_data(data_by_group: Dict[str, pd.DataFrame], cutoff: date) 
     if not all_features:
         return pd.DataFrame()
     df_features = pd.DataFrame(all_features)
-    df_features["group_encoded"]   = df_features["group"].apply(lambda v: stable_hash_int(str(v), 1000))
-    df_features["type_encoded"]    = df_features["release_type"].apply(lambda v: stable_hash_int(str(v), 10))
-    df_features["company_encoded"] = df_features["release_label"].fillna("Unknown").apply(lambda v: stable_hash_int(str(v), 100))
     df_features["target_days_log"] = np.log1p(df_features["target_days"])
     return df_features
 
@@ -445,7 +423,6 @@ def _extract_inference_features(
 
     parent_group_key = SANITIZED_SOLOISTS.get(group_key, group_key)
     generation       = SANITIZED_GENERATION_MAPPINGS.get(parent_group_key, 0)
-    company          = SANITIZED_GROUP_COMPANIES.get(parent_group_key)
     solo_releases    = get_solo_releases_for_group(parent_group_key, all_releases)
 
     intervals_before    = prev_releases["release_date"].diff().dt.days.dropna()
@@ -456,18 +433,11 @@ def _extract_inference_features(
     solos  = _compute_solo_features(solo_releases, last_date, debut_date)
     season = _compute_seasonality(last_date)
 
-    effective_company = _get_effective_company(
-        last_release.get("label", "") if "label" in last_release.index else "",
-        company,
-    )
     second_last    = df_cut.iloc[-2]
     days_to_awards = days_to_next_award_show(last_date)
 
     feature_dict = {
-        "group_encoded":    stable_hash_int(str(group_key), 1000),
         "generation":       generation,
-        "type_encoded":     stable_hash_int(str(last_release["type"]), 10),
-        "company_encoded":  stable_hash_int(effective_company, 100),
         "release_number":   int(len(df_cut) - 1),
         "days_since_debut": (last_date - debut_date).days,
         "days_since_previous":      float(days_since_previous),
@@ -478,7 +448,6 @@ def _extract_inference_features(
         "releases_this_year":  len(prev_releases[prev_releases["release_date"].dt.year == last_date.year]),
         "releases_last_year":  len(prev_releases[prev_releases["release_date"].dt.year == last_date.year - 1]),
         "members_in_military": members_in_military_at(parent_group_key, last_date),
-        "last_type_encoded":   stable_hash_int(str(second_last["type"]), 10),
         "type_changed":        int(str(last_release["type"]) != str(second_last["type"])),
         "track_count_log":     float(np.log1p(int(last_release.get("track_count", 0)))),
         "days_to_awards":      days_to_awards,
