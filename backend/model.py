@@ -508,8 +508,14 @@ def predict_next_release_weibull_interval(
         return None
     X_pred, last_date = result
 
+    # Condition on the quiet period already observed: P(T > t | T > elapsed). Without this the
+    # model ignores that no release has happened since last_date, which biased predictions early.
+    # predict_percentile with conditional_after returns *remaining* time, so add elapsed back.
+    elapsed = max(0, (pd.Timestamp(cutoff) - last_date).days)
+
     def safe_days(p: float, round_mode: str) -> int:
-        raw = max(1.0, float(model.predict_percentile(X_pred, p=p).iloc[0]))
+        remaining = float(model.predict_percentile(X_pred, p=p, conditional_after=[elapsed]).iloc[0])
+        raw = max(1.0, elapsed + remaining)
         if round_mode == "floor": return max(1, int(np.floor(raw)))
         if round_mode == "ceil":  return max(1, int(np.ceil(raw)))
         return max(1, int(np.round(raw)))
@@ -523,11 +529,8 @@ def predict_next_release_weibull_interval(
     pred_days_25 = min(pred_days_25, pred_days_50)
     pred_days_75 = max(pred_days_75, pred_days_50)
 
-    # Calibration: raw p25/p75 spread covers ~90% of actuals; shrink to 1/3 to target ~50% coverage
-    SPREAD_MULTIPLIER = 0.33
-    pred_days_25 = max(1, pred_days_50 - int((pred_days_50 - pred_days_25) * SPREAD_MULTIPLIER))
-    pred_days_75 = pred_days_50 + int((pred_days_75 - pred_days_50) * SPREAD_MULTIPLIER)
-
+    # No spread shrinking: with conditioning, the raw p25–p75 window covers ~47–60% of actual
+    # releases in the rolling backtest (analysis.py), close to the nominal 50%.
     return _apply_cycles_and_sort(last_date, pred_days_25, pred_days_50, pred_days_75, min_prediction_date)
 
 
