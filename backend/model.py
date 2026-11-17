@@ -101,7 +101,10 @@ def load_group_releases(csv_path: str, excluded_secondary: set | None = None) ->
     if missing:
         raise ValueError(f"Missing columns {missing} in {csv_path}")
 
-    df["release_date"] = pd.to_datetime(df["release_date"], errors="coerce")
+    # Explicit format: without it pandas infers the format from the first row, so a
+    # year-only first date (e.g. "2012") silently turned every full date after it into NaT.
+    # Partial dates ("2012", "2016-05") are dropped — they're too imprecise for interval features.
+    df["release_date"] = pd.to_datetime(df["release_date"], errors="coerce", format="%Y-%m-%d")
     df = df.dropna(subset=["release_date"]).sort_values("release_date").reset_index(drop=True)
 
     for col, default in [("secondary_types", ""), ("track_count", 0), ("label", "")]:
